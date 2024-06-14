@@ -323,3 +323,55 @@ sudo python3 -m pip install clang-format && \
   
 # Note that docker needs refresh
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Kripke
+cd /opt
+git clone https://github.com/LLNL/Kripke && \
+    cd Kripke && \
+    git submodule update --init --recursive && \
+    mkdir build 
+
+
+wget -O /opt/Kripke/host-configs/gke.cmake https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/kripke/gke.cmake
+cd /opt/Kripke/build && \
+    cmake  -C../host-configs/gke.cmake ../ && make && \
+    mv /opt/Kripke/build/kripke.exe /opt/Kripke/build/bin/kripke
+
+# Install kripke
+export PATH=$PATH:/opt/Kripke/build/bin:$PATH
+echo "export PATH=$PATH:/opt/Kripke/build/bin:$PATH" >> ~/.bashrc
+
+# Laghos
+cd /opt
+export MAKE_CXX_FLAG="MPICXX=mpic++"
+
+# Install hypre
+sudo apt-get install -y libc6-dev && \
+    export hypre_options="--disable-fortran --without-fei" && \
+    wget --no-verbose https://github.com/hypre-space/hypre/archive/v2.11.2.tar.gz && \
+    tar -xzf v2.11.2.tar.gz && \
+    mv hypre-2.11.2 hypre && \
+    cd hypre/src && \
+   ./configure ${hypre_options} CC=mpicc CXX=mpic++ && \
+    make && sudo make install
+
+unset MAKE_CXX_FLAG
+
+# Metis
+cd /opt
+wget --no-verbose http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/OLD/metis-4.0.3.tar.gz && \
+    tar -xzf metis-4.0.3.tar.gz && \
+    mv metis-4.0.3 metis-4.0 && \
+    make -C metis-4.0/Lib CC=mpicc OPTFLAGS="-Wno-error=implicit-function-declaration -O2"
+
+cd /opt
+git clone --single-branch --depth 1 https://github.com/mfem/mfem && \
+#    unset LD_LIBRARY_PATH && \
+    cd mfem && \
+    make config MFEM_USE_MPI=YES MPICXX=mpiCC MFEM_MPI_NP=2 MFEM_DEBUG=${DEBUG} CPPFLAGS="${CPPFLAGS}" && \
+    make
+
+cd /opt       
+git clone --depth 1 https://github.com/CEED/Laghos laghos
+cd laghos && \ 
+    make && sudo make install

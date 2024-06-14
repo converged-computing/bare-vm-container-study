@@ -115,3 +115,81 @@ But there is some overhead to starting things up I think. It would be fun to pro
 I would also like a consistent way to always get a time for a run, or other metrics, maybe ebpf can help there.
 
 That was very satisfying - I think we can learn a lot without spending too much. I'm going to bed and will pick up tomorrow.
+
+
+## Kripke
+
+```bash
+time singularity pull docker://ghcr.io/converged-computing/metric-kripke-cpu
+time singularity pull docker://ghcr.io/converged-computing/metric-kripke-cpu:c2d
+```
+
+And time! We are going to consider total wrapped time AND wall time. Each has two runs.
+
+```console
+# Bare metal with mpirun: 
+time /usr/local/bin/mpirun --host $(hostname):56 kripke --layout GDZ --dset 8 --zones 56,56,56 --gset 16 --groups 64 --niter 10 --legendre 9 --quad 8 --procs 2,4,7
+```
+```console
+TIMER_NAMES:Generate,LPlusTimes,LTimes,Population,Scattering,Solve,Source,SweepSolver,SweepSubdomain
+TIMER_DATA:0.040797,3.802591,7.491424,0.060380,87.039040,108.981689,0.005787,8.194255,0.261393
+
+Figures of Merit
+================
+
+  Throughput:         8.250505e+06 [unknowns/(second/iteration)]
+  Grind time :        1.212047e-07 [(seconds/iteration)/unknowns]
+  Sweep efficiency :  3.18995 [100.0 * SweepSubdomain time / SweepSolver time]
+  Number of unknowns: 89915392
+
+END
+
+real	1m51.126s
+user	101m33.193s
+sys	0m39.193s
+```
+
+And "My computer" singularity: 
+
+```console
+time /usr/local/bin/mpirun --host $(hostname):56 singularity exec --pwd /home/vanessa/containers/common /home/vanessa/containers/metric-kripke-cpu_latest.sif kripke --layout GDZ --dset 8 --zones 56,56,56 --gset 16 --groups 64 --niter 10 --legendre 9 --quad 8 --procs 2,4,7
+```
+```console
+Figures of Merit
+================
+
+  Throughput:         8.254216e+06 [unknowns/(second/iteration)]
+  Grind time :        1.211502e-07 [(seconds/iteration)/unknowns]
+  Sweep efficiency :  3.71224 [100.0 * SweepSubdomain time / SweepSolver time]
+  Number of unknowns: 89915392
+
+END
+
+real	1m53.323s
+user	101m34.642s
+sys	0m45.859s
+```
+
+And  "c2d" singularity
+
+```console
+time /usr/local/bin/mpirun --host $(hostname):56 singularity exec --pwd /home/vanessa/containers/common /home/vanessa/containers/metric-kripke-cpu_c2d.sif kripke --layout GDZ --dset 8 --zones 56,56,56 --gset 16 --groups 64 --niter 10 --legendre 9 --quad 8 --procs 2,4,7
+```
+```console
+TIMER_NAMES:Generate,LPlusTimes,LTimes,Population,Scattering,Solve,Source,SweepSolver,SweepSubdomain
+TIMER_DATA:0.169121,2.694554,8.321639,0.058425,92.294044,108.623195,0.005598,2.720175,0.254447
+
+Figures of Merit
+================
+
+  Throughput:         8.277734e+06 [unknowns/(second/iteration)]
+  Grind time :        1.208060e-07 [(seconds/iteration)/unknowns]
+  Sweep efficiency :  9.35405 [100.0 * SweepSubdomain time / SweepSolver time]
+  Number of unknowns: 89915392
+
+END
+
+real	1m53.195s
+user	101m23.758s
+sys	0m45.484s
+```
