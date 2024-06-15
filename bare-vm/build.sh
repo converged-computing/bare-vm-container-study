@@ -28,8 +28,7 @@ sudo apt-get -y install \
 sudo apt-get install -y python3-pip
 sudo pip3 install clingo
 
-# What we want to install and how we want to install it
-# is specified in a manifest file (spack.yaml)
+# This is a spack environment definition
 sudo chown -R $USER /opt
 mkdir /opt/spack-environment \
     &&  (echo "spack:" \
@@ -80,7 +79,7 @@ sudo apt-get -y install \
     && apt-get autoremove \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Finally, install oras for saving artifacts
+# oras for saving artifacts
 cd /tmp
 export VERSION="1.1.0" && \
     curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz" && \
@@ -125,17 +124,19 @@ sudo apt-get install -y \
 # tar -xzf singularity-ce-${VERSION}.tar.gz
 # cd singularity-ce-${VERSION}
 
-# ./mconfig
+# sudo ./mconfig
 # make -C builddir
 # sudo make -C builddir install
 
-# SINGULARITY
-
+# Singularity (I wanted to try this way)
 sudo apt-get install -y fuse2fs
 wget https://github.com/sylabs/singularity/releases/download/v4.1.3/singularity-ce_4.1.3-jammy_amd64.deb
 sudo dpkg -i singularity-ce_4.1.3-jammy_amd64.deb
 
 # LAMMPS
+# This is the first "flux base" so we install all-the-things that are shared between the
+# rest of the containers
+# data: oras pull ghcr.io/converged-computing/metric-lammps-cpu:libfabric-data
 sudo apt-get update && \
     sudo apt-get -qq install -y \
         apt-utils \
@@ -337,15 +338,15 @@ cd /opt/Kripke/build && \
     cmake  -C../host-configs/gke.cmake ../ && make && \
     mv /opt/Kripke/build/kripke.exe /opt/Kripke/build/bin/kripke
 
-# Install kripke
+# install kripke
 export PATH=$PATH:/opt/Kripke/build/bin:$PATH
 echo "export PATH=$PATH:/opt/Kripke/build/bin:$PATH" >> ~/.bashrc
 
-# Laghos
+# laghos
 cd /opt
 export MAKE_CXX_FLAG="MPICXX=mpic++"
 
-# Install hypre
+# hypre
 sudo apt-get install -y libc6-dev && \
     export hypre_options="--disable-fortran --without-fei" && \
     wget --no-verbose https://github.com/hypre-space/hypre/archive/v2.11.2.tar.gz && \
@@ -357,7 +358,7 @@ sudo apt-get install -y libc6-dev && \
 
 unset MAKE_CXX_FLAG
 
-# Metis
+# metis
 cd /opt
 wget --no-verbose http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/OLD/metis-4.0.3.tar.gz && \
     tar -xzf metis-4.0.3.tar.gz && \
@@ -366,7 +367,6 @@ wget --no-verbose http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/OLD/metis-4.0.
 
 cd /opt
 git clone --single-branch --depth 1 https://github.com/mfem/mfem && \
-#    unset LD_LIBRARY_PATH && \
     cd mfem && \
     make config MFEM_USE_MPI=YES MPICXX=mpiCC MFEM_MPI_NP=2 MFEM_DEBUG=${DEBUG} CPPFLAGS="${CPPFLAGS}" && \
     make
@@ -375,3 +375,130 @@ cd /opt
 git clone --depth 1 https://github.com/CEED/Laghos laghos
 cd laghos && \ 
     make && sudo make install
+sudo mv laghos /usr/local/bin/
+
+# linpack/hpl
+cd /opt
+sudo apt-get update && sudo apt-get install -y libgtk2.0-dev \
+    net-tools hwloc libhwloc-dev libevent-dev gfortran libopenblas-dev \
+    bc
+
+git clone --depth 1 https://github.com/ULHPC/tutorials /opt/tutorials && \
+    mkdir -p /opt/hpl && \
+    cd /opt/hpl && \
+    ln -s /opt/tutorials/parallel/mpi/HPL ref.d && \
+    ln -s ref.d/Makefile . && \   
+    mkdir src && \
+    cd src && \
+    export HPL_VERSION=2.3 && \
+    wget --no-check-certificate http://www.netlib.org/benchmark/hpl/hpl-${HPL_VERSION}.tar.gz && \
+    tar xvzf hpl-${HPL_VERSION}.tar.gz && \
+    mv hpl-${HPL_VERSION} /opt/hpl
+
+
+cd /opt/hpl
+wet -O ./Make.linux https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/linpack/Makefile
+make arch=linux && \
+ cd ./hpl-2.3 && \
+ ./configure --prefix=/usr/local && \
+ make && sudo make install
+
+# which xhpl
+export PATH=/opt/hpl/bin/linux:$PATH
+echo "PATH=/opt/hpl/bin/linux:$PATH" >> ~/.bashrc
+
+# miniFe
+cd /opt
+git clone https://github.com/Mantevo/minife
+cd /opt/minife/openmp/src && make && sudo cp miniFE.x /usr/local/bin/miniFE.x
+
+# mixbench
+cd /opt
+git clone https://github.com/ekondis/mixbench
+cd /opt/mixbench/mixbench-cpu && \
+    mkdir build && \
+    cd build && \
+    cmake ../ && \
+    cmake --build ./ && make && \
+    sudo cp mixbench-cpu /usr/local/bin
+
+# gemm
+# /usr/local/bin/1_dense_gemm_mpi
+cd /opt
+git clone https://repository.prace-ri.eu/git/CodeVault/hpc-kernels/dense_linear_algebra.git
+cd /opt/dense_linear_algebra/gemm/mpi/src/
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/mt-gemm-base/gemm_mpi.cpp
+cd /opt/dense_linear_algebra/gemm/mpi && \
+    mkdir build && cd build && \
+    cmake ../ && make && sudo make install
+
+# nekrs
+cd /opt
+export NRSCONFIG_NOBUILD=1
+git clone https://github.com/Nek5000/nekRS nekrs && \
+    cd nekrs && \
+    sudo CC=mpicc CXX=mpic++ FC=mpif77 ./nrsconfig -DCMAKE_INSTALL_PREFIX=/usr && \
+    sudo cmake --build ./build --target install     
+
+export NEKRS_HOME=/usr
+echo "export NEKRS_HOME=/usr" >> ~/.bashrc
+
+# data for experiment
+# oras pull ghcr.io/converged-computing/metric-nek5000:libfabric-cpu-data
+
+# OSU
+# benchmarks in:
+# /opt/osu-benchmark/build.openmpi/pt2pt
+# /opt/osu-benchmark/build.openmpi/collective
+# /opt/osu-benchmark/build.openmpi/one-sided
+# /opt/osu-benchmark/build.openmpi/startup
+
+cd /opt/tutorials && \
+    mkdir -p /opt/osu-benchmark && \
+    cd /opt/osu-benchmark && \
+    ln -s /opt/tutorials/parallel/mpi/OSU_MicroBenchmarks ref.d && \
+    ln -s ref.d/Makefile . && \
+    ln -s ref.d/scripts  . && \
+    mkdir src && \
+    cd src && \
+    export OSU_VERSION=5.8 && \
+    wget --no-check-certificate http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tgz && \
+    tar xf osu-micro-benchmarks-${OSU_VERSION}.tgz && \
+    cd /opt/osu-benchmark && \
+    # Compile based on openmpi
+    mkdir -p build.openmpi && cd build.openmpi && \
+    ../src/osu-micro-benchmarks-${OSU_VERSION}/configure CC=mpicc CXX=mpicxx CFLAGS=-I$(pwd)/../src/osu-micro-benchmarks-${OSU_VERSION}/util --prefix=$(pwd) && \
+    make && sudo make install
+
+# Pennant
+sudo apt-get update && \
+    sudo apt-get install -y fftw3-dev fftw3 pdsh libfabric-dev libfabric1 \
+        openssh-client openssh-server \
+        dnsutils telnet strace cmake git g++ \
+        unzip bzip2
+
+cd /opt
+git clone https://github.com/lanl/PENNANT /opt/pennant
+cd /opt/pennant
+rm Makefile
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/pennant/Makefile
+make && sudo mv ./build/pennant /usr/bin/pennant
+
+# Quicksilver
+cd /opt
+git clone https://github.com/LLNL/Quicksilver quicksilver
+cd /opt/quicksilver/src
+rm Makefile
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/quicksilver/Makefile
+make && sudo cp qs /usr/bin/qs
+
+mkdir -p /opt/stream
+cd /opt/stream
+
+# Being very lazy
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/stream/src/Makefile
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/stream/src/mysecond.c
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/stream/src/stream.c
+wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/stream/src/stream.f
+sudo apt-get install -y gfortran && \
+    make && sudo cp stream_c.exe /usr/local/bin && sudo cp stream_f.exe /usr/local/bin
