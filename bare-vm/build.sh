@@ -22,10 +22,10 @@ sudo apt-get -y install \
     gfortran \
     g++ \
     build-essential \
+    python3-pip \
     software-properties-common
 
 # spack concretization will fail without clingo
-sudo apt-get install -y python3-pip
 sudo pip3 install clingo
 
 # This is a spack environment definition
@@ -74,10 +74,7 @@ sudo apt-get -y install \
     openssh-server \
     openssh-client \
     dnsutils \
-    curl \
-    && apt-get clean \
-    && apt-get autoremove \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    curl
 
 # oras for saving artifacts
 cd /tmp
@@ -110,28 +107,28 @@ sudo apt-get install -y \
    zlib1g-dev
    
 # Go
-# export VERSION=1.21.0 OS=linux ARCH=amd64
-# wget https://dl.google.com/go/go$VERSION.$OS-$ARCH.tar.gz
-# sudo tar -C /usr/local -xzvf go$VERSION.$OS-$ARCH.tar.gz
-# rm go$VERSION.$OS-$ARCH.tar.gz
+export VERSION=1.21.0 OS=linux ARCH=amd64
+wget https://dl.google.com/go/go$VERSION.$OS-$ARCH.tar.gz
+sudo tar -C /usr/local -xzvf go$VERSION.$OS-$ARCH.tar.gz
+rm go$VERSION.$OS-$ARCH.tar.gz
 
-# echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc
-# . ~/.bashrc
+echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc
+. ~/.bashrc
 
-# export VERSION=4.0.1
-# export PATH=/usr/local/go/bin:$PATH
-# wget https://github.com/sylabs/singularity/releases/download/v${VERSION}/singularity-ce-${VERSION}.tar.gz
-# tar -xzf singularity-ce-${VERSION}.tar.gz
-# cd singularity-ce-${VERSION}
+export VERSION=4.0.1
+export PATH=/usr/local/go/bin:$PATH
+wget https://github.com/sylabs/singularity/releases/download/v${VERSION}/singularity-ce-${VERSION}.tar.gz
+tar -xzf singularity-ce-${VERSION}.tar.gz
+cd singularity-ce-${VERSION}
 
-# sudo ./mconfig
-# make -C builddir
-# sudo make -C builddir install
+./mconfig
+make -C builddir
+sudo make -C builddir install
 
-# Singularity (I wanted to try this way)
-sudo apt-get install -y fuse2fs
-wget https://github.com/sylabs/singularity/releases/download/v4.1.3/singularity-ce_4.1.3-jammy_amd64.deb
-sudo dpkg -i singularity-ce_4.1.3-jammy_amd64.deb
+# Singularity (if you want another way)
+# sudo apt-get install -y fuse2fs
+# wget https://github.com/sylabs/singularity/releases/download/v4.1.3/singularity-ce_4.1.3-jammy_amd64.deb
+# sudo dpkg -i singularity-ce_4.1.3-jammy_amd64.deb
 
 # LAMMPS
 # This is the first "flux base" so we install all-the-things that are shared between the
@@ -267,8 +264,9 @@ wget https://github.com/flux-framework/flux-core/releases/download/v0.61.2/flux-
     sudo make && \
     sudo make install
 
-sudo apt-get update
-sudo apt-get -qq install -y \
+
+sudo apt-get update && \
+sudo apt-get install -y \
 	libboost-graph-dev \
 	libboost-system-dev \
 	libboost-filesystem-dev \
@@ -283,7 +281,7 @@ export CMAKE=3.23.1
 curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-x86_64.sh > cmake.sh && \
     sudo sh cmake.sh --prefix=/usr/local --skip-license
     
-sudo apt-get install -y  libyaml-cpp-dev libedit-dev
+sudo apt-get install -y  libyaml-cpp-dev libedit-dev && \
 wget https://github.com/flux-framework/flux-sched/releases/download/v0.33.1/flux-sched-0.33.1.tar.gz && \
     tar -xzvf flux-sched-0.33.1.tar.gz && \
     cd flux-sched-0.33.1 && \
@@ -291,6 +289,7 @@ wget https://github.com/flux-framework/flux-sched/releases/download/v0.33.1/flux
     sudo make && \
     sudo make install && \
     sudo ldconfig
+
 
 sudo apt-get update && \
     sudo apt-get install -y fftw3-dev fftw3 pdsh libfabric-dev libfabric1 \

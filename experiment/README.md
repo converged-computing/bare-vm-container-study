@@ -40,14 +40,27 @@ And now the runs! These are just tests.
 
 ```console
 # Bare metal: 33.866 seconds
-time /opt/view/bin/mpirun --host $(hostname):56 /opt/view/bin/amg -P 2 4 7 -n 64 128 128
+time /opt/view/bin/mpirun --host $(hostname):56 /opt/view/bin/amg -P 2 4 7 -n 64 128 128 &
+procid=$?
+sudo python /home/vanessa/time-calls.py -p $procid do_sys*
+```
+```console
+FUNC                                    COUNT     TIME (nsecs)
+do_sys_openat2                            659           765935
+do_sys_poll                             28906      44605582051
+```
 
+```console
 # Singularity "my computer" : 37.091 seconds (from outside the container) - it seems like the delay is in the startup
 time mpirun --host $(hostname):56 singularity exec metric-amg2023_spack-slim-cpu.sif /bin/bash ./run_amg.sh
 
 # Singularity "c2d": 36.89 seconds
-time mpirun --host $(hostname):56 singularity exec metric-amg2023_spack-c2d.sif /bin/bash ./run_amg.sh
+time mpirun --host $(hostname):56 singularity exec metric-amg2023_spack-c2d.sif /bin/bash ./run_amg.sh &
+procid=$?
+sudo python /home/vanessa/time-calls.py -p $procid do_sys*
+```
 
+```console
 # Singularity "c2d" inside container: 34.506
 singularity shell metric-amg2023_spack-c2d.sif
 time /opt/view/bin/mpirun --host $(hostname):56 /bin/bash ./run_amg.sh
@@ -281,4 +294,7 @@ I'm going to write a better script for automation than the above.
 ## Pennant
 
 ## Quicksilver
+
+## Stream
+
 That was very satisfying - I think we can learn a lot without spending too much.
