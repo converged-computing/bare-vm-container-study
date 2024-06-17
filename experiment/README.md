@@ -100,10 +100,13 @@ cd ./common
 # wall time: 28, 28 seconds
 time /usr/local/bin/mpirun --host $(hostname):56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000
 
-# Bare metal without mpirun (note fewer number of steps)
-# wrapped: 24.826, 24.856 seconds
-# wall time: 23, 23 seconds
-time lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 1000
+# Testing with ebpf
+time /usr/local/bin/mpirun --host $(hostname):56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000 >> ./result.out & 
+sudo -E python3 time-calls.py --program lmp do_sys*
+
+# and with singularity
+/usr/local/bin/mpirun --host $(hostname):56 singularity exec --pwd /home/vanessa/containers/common /home/vanessa/containers/metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000 >> ./result.out &
+sudo -E python3 time-calls.py --program lmp --sleep 5 do_sys*
 
 # "My computer" singularity: 
 # wrapped: 32.55, 32.989 seconds

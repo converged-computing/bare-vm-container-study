@@ -277,9 +277,10 @@ sudo apt-get install -y \
         libyaml-cpp-dev \
 	curl
 
-export CMAKE=3.23.1
-curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-x86_64.sh > cmake.sh && \
-    sudo sh cmake.sh --prefix=/usr/local --skip-license
+# I skipped this - we have it already 3.22.1
+# export CMAKE=3.23.1
+# curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-x86_64.sh > cmake.sh && \
+#    sudo sh cmake.sh --prefix=/usr/local --skip-license
     
 sudo apt-get install -y  libyaml-cpp-dev libedit-dev && \
 wget https://github.com/flux-framework/flux-sched/releases/download/v0.33.1/flux-sched-0.33.1.tar.gz && \
