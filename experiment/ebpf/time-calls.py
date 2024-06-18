@@ -2,20 +2,12 @@
 
 # Run an ebpf program by name, and wait for it to finish
 # Usage:
-#   sleep 60 &
-#   sudo -E python3 time-calls.py --program sleep do_sys*
-
-# TODO: this program is not done yet. What we need:
-#  1. This needs to be run before our application, meaning we need to wait for it
-#  2. We likely need retry if the process for some reason is not there yet
-#  3. Some elegant way to run and handle capturing both outputs
-#  4. Testing in different cases to ensure we don't
+#   sudo -E python3 time-calls.py --pattern do_sys* <program> <options> <args>
 
 import argparse
 import os
 import subprocess
 import sys
-from time import sleep
 
 from bcc import BPF
 
@@ -82,7 +74,7 @@ int stop_timing(struct pt_regs *ctx) {
 """
 
 
-def add_filter(args):
+def add_filter(pid):
     """
     Add a filter to a tgid (thread group id) based on
     a program pid. A group of pids can belong to a tgid,
@@ -90,28 +82,7 @@ def add_filter(args):
     to derive it.
     """
     global bpf_text
-    if args.program is not None:
-        # Take program name, and get one of the pids. There are likely multiple
-        # The first pid is actually the tgid (thread group id)
-        # This is also a bit janky, but given unique names for the apps it should work
-        pid = get_pid(args.program)
-        tgid = None
-        while tgid is None:
-            try:
-                # I'm starting at the end to get the last one submit
-                # This should still give us the group (and not one that
-                # was running previously)
-                tgid = os.getpgid(pid.pop())
-            except:
-                continue
-        if not tgid:
-            raise ValueError(f"Could not get task group id for {args.program}")
-        bpf_text = bpf_text.replace("FILTER", "if (tgid != {tgid}) { return 0; }")
-
-    elif args.pid is not None:
-        bpf_text = bpf_text.replace("FILTER", "if (tgid != {args.pid}) { return 0; }")
-        tgid = args.pid
-    return tgid
+    bpf_text = bpf_text.replace("FILTER", "if (tgid != {args.pid}) { return 0; }")
 
 
 def get_parser():
@@ -120,14 +91,8 @@ def get_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--pid", type=int, help="trace a single PID only")
-    parser.add_argument("-p", "--program", help="name of program to trace")
-    parser.add_argument("pattern", help="search expression for functions")
     parser.add_argument(
-        "-s",
-        "--sleep",
-        type=int,
-        help="seconds to sleep seeing if pid exists",
-        default=10,
+        "-p", "--pattern", help="search expression for functions", default="do_sys*"
     )
     return parser
 
@@ -166,19 +131,27 @@ def pid_exists(pid):
 def main():
     """
     Run the ebpf program. Usage:
-    sleep 10 &
-    sudo -E python3 time-calls.py --program sleep do_sys*
+
+    sudo -E python3 time-calls.py sleep 10
     """
     parser = get_parser()
-    args = parser.parse_args()
+    args, command = parser.parse_known_args()
 
-    # Since we wait on it, make sure we have one
-    if not args.pid and not args.program:
-        sys.exit("We need a --pid or --program, bro-shizzle.")
+    # If we don't have a command or pid, no go
+    if not command and not args.pid:
+        sys.exit("We need a --pid or command to follow the script, bro-shizzle.")
 
-    # Filter by specific pid or tgid
-    pid = add_filter(args)
-    print(f"👀️ Watching tgid/pid {pid}...")
+    # NOTE: this does add some overhead to the application, but it depends how you run it
+    # By process (e.g., wrapping lmp and not mpirun) adds a few seconds vs. mpirun
+    # is comparable
+    if args.pid is None and command:
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        pid = p.pid
+    else:
+        pid = args.pid
+
+    add_filter(pid)
+    print(f"👀️ Watching pid {pid}...")
 
     # Load the ebpf program
     program = BPF(text=bpf_text)
@@ -192,15 +165,27 @@ def main():
 
     # We got a bad, bad pattern!
     if matched == 0:
-        sys.exit('0 functions matched by "%s". Exiting.' % args.pattern)
+        sys.exit('0 functions matched by "{args.pattern}". Exiting.')
 
     # We have to divide by two since we have a start/stop
     number_functions = matched / 2
     print(f'Timing {number_functions} functions for "{args.pattern}')
 
     # I'm not sure what overhead this adds
-    while pid_exists(pid):
-        sleep(args.sleep)
+    p.wait()
+
+    # Print output - for the experiments we will save it to file
+    # Better would be to open an sqlite database, and save to a table
+    # based on the program, pid, and iteration.
+    out, err = p.communicate()
+    if p.returncode == 0:
+        out = out.decode("utf-8")
+        print(out)
+        print("Run was successful.")
+    else:
+        err = err.decode("utf-8")
+        print(err)
+        print("Run was not successful.")
 
     print()
     print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))

@@ -1,11 +1,12 @@
 # Experiment
 
-We are going to run all the applications on bare metal, with docker, and with singularity. So far I've only installed amg (with spack) so we will test that quickly.
+We are going to run all the applications on bare metal, with docker, and with singularity. We will also use ebpf for assessing performance. You can see all the events in [ebpf/matches.txt](ebpf/matches.txt). There are so many, so I'm not sure which ones I want to look at yet. We might actually be better off running on a fewer number of processes and collecting more data.
 
 ```console
 mkdir -p $HOME/containers
 cd $HOME/containers
 ```
+
 ## Thoughts
 
 If we profile the application once it starts in the container, I suspect it's exactly the same. The overhead
@@ -101,12 +102,12 @@ cd ./common
 time /usr/local/bin/mpirun --host $(hostname):56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000
 
 # Testing with ebpf
-time /usr/local/bin/mpirun --host $(hostname):56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000 >> ./result.out & 
-sudo -E python3 time-calls.py --program lmp do_sys*
+sudo -E python3 time-calls.py /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000
+
+sudo -E python3 time-calls.py /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000
 
 # and with singularity
-/usr/local/bin/mpirun --host $(hostname):56 singularity exec --pwd /home/vanessa/containers/common /home/vanessa/containers/metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000 >> ./result.out &
-sudo -E python3 time-calls.py --program lmp --sleep 5 do_sys*
+sudo -E python3 ../../time-calls.py /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):56 singularity exec --pwd /home/vanessa/containers/common /home/vanessa/containers/metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 20000
 
 # "My computer" singularity: 
 # wrapped: 32.55, 32.989 seconds
