@@ -32,6 +32,8 @@ int start_timing(struct pt_regs *ctx) {
     u32 pid = pid_tgid;
     u64 ts = bpf_ktime_get_ns();
 
+    FILTER
+
     u64 ip = PT_REGS_IP(ctx);
     ipaddr.update(&pid, &ip);
     start.update(&pid, &ts);
@@ -102,7 +104,7 @@ def get_pid(program):
     Get the pid(s) of a program by name.
 
     We could use psutil for this, but I would
-    rather not install an extra thign.
+    rather not install an extra thing.
     """
     pid = subprocess.check_output(["pidof", program])
     if not pid:
