@@ -8,6 +8,7 @@ import argparse
 import os
 import subprocess
 import sys
+import json
 
 from bcc import BPF
 
@@ -29,11 +30,14 @@ BPF_HASH(stats, u64, struct stats_t);
 
 int start_timing(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    // This should be the pid of the task group
+    // I think this is what subprocess gives back
     u32 pid = pid_tgid;
-    u64 ts = bpf_ktime_get_ns();
 
     FILTER
 
+    u64 ts = bpf_ktime_get_ns();
     u64 ip = PT_REGS_IP(ctx);
     ipaddr.update(&pid, &ip);
     start.update(&pid, &ts);
@@ -48,13 +52,14 @@ int stop_timing(struct pt_regs *ctx) {
 
     // calculate delta time
     tsp = start.lookup(&pid);
+
+    // This means we missed the start
     if (tsp == 0) {
-        return 0;   // missed start
+        return 0;
     }
     delta = bpf_ktime_get_ns() - *tsp;
     start.delete(&pid);
 
-    // store as histogram
     u64 ip, *ipp = ipaddr.lookup(&pid);
     if (ipp) {
         ip = *ipp;
@@ -76,6 +81,16 @@ int stop_timing(struct pt_regs *ctx) {
 """
 
 
+def get_matches(pattern):
+    program = BPF(text=bpf_text)
+    program.attach_kprobe(event_re=pattern, fn_name="start_timing")
+    program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
+
+    # This tells us the number of kprobes we match
+    matched = program.num_open_kprobes()
+    print(matched)
+
+
 def add_filter(pid):
     """
     Add a filter to a tgid (thread group id) based on
@@ -84,7 +99,7 @@ def add_filter(pid):
     to derive it.
     """
     global bpf_text
-    bpf_text = bpf_text.replace("FILTER", "if (tgid != {args.pid}) { return 0; }")
+    bpf_text = bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }")
 
 
 def get_parser():
@@ -157,10 +172,10 @@ def main():
 
     # Load the ebpf program
     program = BPF(text=bpf_text)
-    pattern = args.pattern.replace("*", ".*")
-    pattern = "^" + pattern + "$"
-    program.attach_kprobe(event_re=pattern, fn_name="start_timing")
-    program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
+
+    # patterns should be regular expression oriented
+    program.attach_kprobe(event_re=args.pattern, fn_name="start_timing")
+    program.attach_kretprobe(event_re=args.pattern, fn_name="stop_timing")
 
     # This tells us the number of kprobes we match
     matched = program.num_open_kprobes()
@@ -170,7 +185,7 @@ def main():
         sys.exit('0 functions matched by "{args.pattern}". Exiting.')
 
     # We have to divide by two since we have a start/stop
-    number_functions = matched / 2
+    number_functions = int(matched / 2)
     print(f'Timing {number_functions} functions for "{args.pattern}')
 
     # I'm not sure what overhead this adds
@@ -194,8 +209,23 @@ def main():
 
     # Get a table from the program to print to the terminal
     stats = program.get_table("stats")
+    results = []
     for k, v in stats.items():
+        results.append(
+            {
+                "func": BPF.sym(k.value, -1).decode("utf-8"),
+                "count": v.freq,
+                "time_nsecs": v.time,
+            }
+        )
         print("%-36s %8s %16s" % (BPF.sym(k.value, -1).decode("utf-8"), v.freq, v.time))
+    print("\n=== RESULTS START")
+    print(json.dumps(results))
+    print("=== RESULTS END")
+
+    # This only works for one function
+    # program.detach_kprobe(event_re=pattern, fn_name="start_timing")
+    # program.detach_kretprobe(event_re=pattern, fn_name="stop_timing")
 
 
 if __name__ == "__main__":

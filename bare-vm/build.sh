@@ -502,3 +502,63 @@ wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-stu
 wget https://raw.githubusercontent.com/converged-computing/bare-vm-container-study/main/docker/stream/src/stream.f
 sudo apt-get install -y gfortran && \
     make && sudo cp stream_c.exe /usr/local/bin && sudo cp stream_f.exe /usr/local/bin
+    
+    
+# Here is how to setup bpf, bcc, and bpftrace
+
+# grep -i BPF /boot/config-`uname -r`
+sudo apt-get install -y bpfcc-tools libbpfcc libbpfcc-dev linux-headers-$(uname -r)
+
+git clone https://github.com/iovisor/bcc /opt/bcc
+sudo apt-get -y install bison build-essential cmake flex git libedit-dev llvm llvm-dev libclang-dev zlib1g-dev libelf-dev zip
+
+# Recommended for testing
+sudo apt-get install -y iperf3 netperf arping
+
+cd /opt/bcc
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr
+make
+sudo make install
+sudo rm -rf /usr/lib/python3/dist-packages/bcc/*
+sudo cp -r /opt/bcc/build/src/python/bcc-python3/bcc/* /usr/lib/python3/dist-packages/bcc/
+
+# in tools
+# sudo python3 funclatency.py 'open*'
+
+# bpftrace
+
+# Not sure I needed to do this.
+sudo apt-get install -y build-essential bc curl flex bison libelf-dev libssl-dev
+sudo mkdir -p /usr/src/linux
+# Note that I looked this up - the automated approach above didn't work
+wget https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.5.tar.gz
+sudo tar --strip-components=1 -xzf linux-6.5.tar.gz -C /usr/src/linux
+cd /usr/src/linux
+# zcat /proc/config.gz > /tmp/.config
+sudo make ARCH=x86 oldconfig
+sudo make ARCH=x86 prepare
+# sudo mkdir -p /lib/modules/$(uname -r)
+sudo ln -sf /usr/src/linux /lib/modules/$(uname -r)/source
+sudo ln -sf /usr/src/linux /lib/modules/$(uname -r)/build
+
+git clone --depth 1 https://github.com/libbpf/libbpf /opt/libbpf
+cd /opt/libbpf/src
+sudo make install
+
+sudo apt-get install -y libbpf-dev libcereal-dev libpcap-dev 
+git clone https://github.com/bpftrace/bpftrace /opt/bpftrace
+cd /opt/bpftrace
+mkdir build
+cmake -B ./build -DBUILD_TESTING=OFF
+make -C ./build -j$(nproc)
+sudo make -C ./build/ install
+
+# Add to LD_LIBRARY_PATH (for one off use)
+export LD_LIBRARY_PATH=/opt/libbpf/src:$LD_LIBRARY_PATH
+echo "export LD_LIBRARY_PATH=/opt/libbpf/src:$LD_LIBRARY_PATH" >> ~/.bashrc
+
+# Actually, this is easier
+sudo cp /opt/libbpf/src/*.so .
+sudo ldconfig
