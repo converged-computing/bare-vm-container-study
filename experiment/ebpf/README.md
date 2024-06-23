@@ -2077,15 +2077,19 @@ We now have [img/ebpf-functions.json](img/ebpf-functions.json) and this is every
 
 ```bash
 results=./results/test-0/bare-metal
-mkdir -p ${results}
+sresults=./results/test-0/singularity
+mkdir -p ${results} ${sresults}
 counter=0
-for index in 0 1 2 3 4 5
-  do
-    for proc in 56 28 14
-      do
-       time sudo -E python3 targeted-time.py -i $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ./results/bare-metal/${counter}-${proc}.out
-    done
-    counter=$((counter+1))
+for iter in $(seq 1 10); do
+  for index in 0 1 2 3 4 5
+    do
+      for proc in 56 28 14
+        do
+       time sudo -E python3 targeted-time.py -i $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee $results/${index}-${counter}-${proc}.out
+       time sudo -E -E python3 targeted-time.py -i $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${sresults}/${index}-${counter}-${proc}.out
+      done
+      counter=$((counter+1))
+  done
 done
 ```
 
