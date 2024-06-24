@@ -93,7 +93,7 @@ def main():
     plot_results(df, lammps, outdir)
 
 
-def plot_lammps(lammps):
+def plot_lammps(lammps, outdir):
     """
     Plot lammps times
     """
@@ -120,7 +120,7 @@ def plot_results(df, lammps, outdir):
     """
     Plot results
     """
-    # plot_lammps(lammps)
+    plot_lammps(lammps, outdir)
 
     # For each metric, see if there is significant difference between means
     # we would want to correct for multiple samples too.
@@ -137,7 +137,6 @@ def plot_results(df, lammps, outdir):
             sized = subset[subset.ranks == size]
             if sized.shape[0] == 0:
                 continue
-            print(sized)
 
             # Do a t test! Two tailed means we can get a change in either direction
             singularity = sized[sized.experiment == "singularity"].time_nsecs.tolist()
