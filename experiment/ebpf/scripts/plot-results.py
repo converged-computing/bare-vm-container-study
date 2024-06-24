@@ -5,7 +5,9 @@ import argparse
 import collections
 import fnmatch
 import os
+import numpy
 
+from scipy import stats
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import metricsoperator.utils as utils
@@ -25,7 +27,7 @@ def get_parser():
     parser.add_argument(
         "--results",
         help="directory with raw results data",
-        default=os.path.join(here, "results"),
+        default=os.path.join(here, "results", "test-0"),
     )
     parser.add_argument(
         "--out",
@@ -90,11 +92,10 @@ def main():
     plot_results(df, lammps, outdir)
 
 
-def plot_results(df, lammps, outdir):
+def plot_lammps(lammps):
     """
-    Plot results
+    Plot lammps times
     """
-    # Plot lammps times
     ax = sns.boxplot(
         data=lammps,
         x="ranks",
@@ -113,18 +114,66 @@ def plot_results(df, lammps, outdir):
     plt.clf()
     plt.close()
 
-    # Do a diff - we wil eventually want to look at significant differences
-    # between means.
-    # TODO: what to do if we don't have data for a case?
-    diffs = pandas.DataFrame(columns=["function", "difference"])
+
+def plot_results(df, lammps, outdir):
+    """
+    Plot results
+    """
+    # plot_lammps(lammps)
+
+    # For each metric, see if there is significant difference between means
+    # we would want to correct for multiple samples too.
+
+    # Keep record of results for each
+    diffs = pandas.DataFrame(columns=["function", "size", "pvalue", "statistic"])
+    idx = 0
+    not_used_singularity = set()
+    not_used_bare_metal = set()
+
     for function in df.function.unique():
         subset = df[df.function == function]
         for size in df.ranks.unique():
             sized = subset[subset.ranks == size]
+            if sized.shape[0] == 0:
+                continue
 
-    import IPython
+            # Do a t test! Two tailed means we can get a change in either direction
+            singularity = sized[sized.experiment == "singularity"].time_nsecs.tolist()
+            bare_metal = sized[sized.experiment == "bare-metal"].time_nsecs.tolist()
 
-    IPython.embed()
+            # We would want to sanity check these and understand why!
+            if len(singularity) == 0:
+                not_used_singularity.add(function)
+                print(f"Warning function {function} is not used for singularity.")
+            if len(bare_metal) == 0:
+                not_used_bare_metal.add(function)
+                print(f"Warning function {function} is not used for bare metal.")
+            if len(singularity) == 0 or len(bare_metal) == 0:
+                continue
+
+            # For now require >1 for both (we need more samples here)
+            if len(singularity) <= 1 or len(bare_metal) <= 1:
+                continue
+
+            res = stats.ttest_ind(singularity, bare_metal)
+            if numpy.isnan(res.pvalue):
+                import IPython
+
+                IPython.embed()
+                sys.exit()
+            diffs.loc[idx, :] = [function, size, res.pvalue, res.statistic]
+            idx += 1
+
+    diffs = diffs.sort_values("pvalue")
+    diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
+    utils.write_file(
+        "\n".join(list(not_used_singularity)),
+        os.path.join(outdir, "functions-not-used-singularity.txt"),
+    )
+    utils.write_file(
+        "\n".join(list(not_used_bare_metal)),
+        os.path.join(outdir, "functions-not-used-bare-metal.txt"),
+    )
 
 
 def plot_ebpf(df):
@@ -187,20 +236,20 @@ def parse_data(files):
     idxl = 0
 
     for filename in files:
-        if "/test/" in filename:
-            continue
         parsed = os.path.relpath(filename, here)
         pieces = parsed.split(os.sep)
         experiment = pieces[-2]
         filebase = pieces[-1]
-        size = int(filebase.split("-")[-1].replace(".out", ""))
-
-        # This is the index of the pattern
-        iteration = int(filebase.split("-")[-2])
+        _, iteration, _ = filebase.replace(".out", "").split("-")
 
         # Save CPU line
         # This is a list, each a json result, 20x
         item = utils.read_file(filename)
+
+        # I think my session was killed
+        if not item:
+            continue
+
         line = [x for x in item.split("\n") if "CPU use" in x]
         percent_cpu_usage = float(line[0].split(" ")[0].replace("%", ""))
 
@@ -213,7 +262,7 @@ def parse_data(files):
         lammps.loc[idxl, :] = [
             int(ranks),
             experiment,
-            iteration,
+            int(iteration),
             seconds,
             1,
             percent_cpu_usage,

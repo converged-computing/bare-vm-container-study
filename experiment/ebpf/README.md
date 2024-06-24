@@ -2076,17 +2076,22 @@ We now have [img/ebpf-functions.json](img/ebpf-functions.json) and this is every
 
 
 ```bash
-results=./results/test-0/bare-metal
-sresults=./results/test-0/singularity
+results=./results/test-1/bare-metal
+sresults=./results/test-1/singularity
 mkdir -p ${results} ${sresults}
 counter=0
-for iter in $(seq 1 10); do
+for iter in $(seq 1 32); do
   for index in 0 1 2 3 4 5
     do
-      for proc in 56 28 14
+      # Just do one size to start, it is fastest too
+      for proc in 56
         do
-       time sudo -E python3 targeted-time.py -i $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee $results/${index}-${counter}-${proc}.out
-       time sudo -E -E python3 targeted-time.py -i $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${sresults}/${index}-${counter}-${proc}.out
+       if [[ ! -f "${results}/${index}-${counter}-${proc}.out" ]]; then
+       time sudo -E python3 targeted-time.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee $results/${index}-${counter}-${proc}.out
+       fi
+       if [[ ! -f "${sresults}/${index}-${counter}-${proc}.out" ]]; then
+         time sudo -E -E python3 targeted-time.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${sresults}/${index}-${counter}-${proc}.out
+      fi
       done
       counter=$((counter+1))
   done
