@@ -2074,6 +2074,17 @@ I think this is just because some functions are wrong, and when we run against t
 
 We now have [img/ebpf-functions.json](img/ebpf-functions.json) and this is everything running when LAMMPS is running. Since we are going to create distributions and look for significant differences, I think we can be OK with background stuff (it should not be significantly different between cases). I want to first do a test run with the new script.
 
+Let's write a wrapper to test exec and see if the pid is maintained.
+
+```bash
+#!/bin/bash
+
+echo $$
+sleep 10
+exec /bin/bash -c "echo $$"
+```
+
+That seems to work? Let's try with our run. With the smaller group, each of these runs takes about 30 seconds, as we are just profiling the pid.
 
 ```bash
 results=./results/test-1/bare-metal
@@ -2081,16 +2092,16 @@ sresults=./results/test-1/singularity
 mkdir -p ${results} ${sresults}
 counter=0
 for iter in $(seq 1 32); do
-  for index in 0 1 2 3 4 5
+  for index in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
     do
       # Just do one size to start, it is fastest too
       for proc in 56
         do
        if [[ ! -f "${results}/${index}-${counter}-${proc}.out" ]]; then
-       time sudo -E python3 targeted-time.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee $results/${index}-${counter}-${proc}.out
+       time sudo -E python3 time-wrapped.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee $results/${index}-${counter}-${proc}.out
        fi
        if [[ ! -f "${sresults}/${index}-${counter}-${proc}.out" ]]; then
-         time sudo -E -E python3 targeted-time.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${sresults}/${index}-${counter}-${proc}.out
+         time sudo -E -E python3 time-wrapped.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${sresults}/${index}-${counter}-${proc}.out
       fi
       done
       counter=$((counter+1))

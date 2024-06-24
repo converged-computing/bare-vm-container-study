@@ -28,7 +28,7 @@ def get_parser():
     parser.add_argument(
         "--results",
         help="directory with raw results data",
-        default=os.path.join(here, "results", "test-0"),
+        default=os.path.join(here, "results", "test-1"),
     )
     parser.add_argument(
         "--out",
@@ -137,6 +137,7 @@ def plot_results(df, lammps, outdir):
             sized = subset[subset.ranks == size]
             if sized.shape[0] == 0:
                 continue
+            print(sized)
 
             # Do a t test! Two tailed means we can get a change in either direction
             singularity = sized[sized.experiment == "singularity"].time_nsecs.tolist()
@@ -157,11 +158,6 @@ def plot_results(df, lammps, outdir):
                 continue
 
             res = stats.ttest_ind(singularity, bare_metal)
-            if numpy.isnan(res.pvalue):
-                import IPython
-
-                IPython.embed()
-                sys.exit()
             diffs.loc[idx, :] = [function, size, res.pvalue, res.statistic]
             idx += 1
 
@@ -172,7 +168,9 @@ def plot_results(df, lammps, outdir):
     diffs['pvalue'] = p_adjusted
     diffs['rejected'] = rejected
     sigs = diffs[diffs.rejected == True]
-    
+    import IPython
+        
+    # TODO add means / std for each
     diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
     sigs.to_csv(os.path.join(outdir, "two-sample-t-reject-null.csv"))
     utils.write_file(
