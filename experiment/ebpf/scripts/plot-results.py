@@ -8,6 +8,7 @@ import os
 import numpy
 
 from scipy import stats
+from statsmodels.sandbox.stats.multicomp import multipletests
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import metricsoperator.utils as utils
@@ -129,7 +130,7 @@ def plot_results(df, lammps, outdir):
     idx = 0
     not_used_singularity = set()
     not_used_bare_metal = set()
-
+    
     for function in df.function.unique():
         subset = df[df.function == function]
         for size in df.ranks.unique():
@@ -165,7 +166,15 @@ def plot_results(df, lammps, outdir):
             idx += 1
 
     diffs = diffs.sort_values("pvalue")
+
+    # Bonferonni correction
+    rejected, p_adjusted, _, alpha_corrected = multipletests(diffs['pvalue'].tolist(), method='bonferroni')
+    diffs['pvalue'] = p_adjusted
+    diffs['rejected'] = rejected
+    sigs = diffs[diffs.rejected == True]
+    
     diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
+    sigs.to_csv(os.path.join(outdir, "two-sample-t-reject-null.csv"))
     utils.write_file(
         "\n".join(list(not_used_singularity)),
         os.path.join(outdir, "functions-not-used-singularity.txt"),
