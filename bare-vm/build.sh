@@ -507,10 +507,10 @@ sudo apt-get install -y gfortran && \
 # Here is how to setup bpf, bcc, and bpftrace
 
 # grep -i BPF /boot/config-`uname -r`
-sudo apt-get install -y bpfcc-tools libbpfcc libbpfcc-dev linux-headers-$(uname -r)
+# sudo apt-get install -y bpfcc-tools libbpfcc libbpfcc-dev linux-headers-$(uname -r)
 
 git clone https://github.com/iovisor/bcc /opt/bcc
-sudo apt-get -y install bison build-essential cmake flex git libedit-dev llvm llvm-dev libclang-dev zlib1g-dev libelf-dev zip
+sudo apt-get -y install bison build-essential cmake flex git libedit-dev llvm llvm-dev libclang-dev zlib1g-dev libelf-dev zip clang
 
 # Recommended for testing
 sudo apt-get install -y iperf3 netperf arping
@@ -521,33 +521,39 @@ cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=/usr
 make
 sudo make install
+
+# Only run this if you previously installed bcc to your site packages
 sudo rm -rf /usr/lib/python3/dist-packages/bcc/*
 sudo cp -r /opt/bcc/build/src/python/bcc-python3/bcc/* /usr/lib/python3/dist-packages/bcc/
+
+# Run this if you haven't
+sudo cp -r /opt/bcc/build/src/python/bcc-python3/bcc/ /usr/lib/python3/dist-packages/bcc/
 
 # in tools
 # sudo python3 funclatency.py 'open*'
 
 # bpftrace
 
+# You shouldn't need to do this - but this is how to build your own kernel!
 # Not sure I needed to do this.
-sudo apt-get install -y build-essential bc curl flex bison libelf-dev libssl-dev
-sudo mkdir -p /usr/src/linux
+# sudo apt-get install -y build-essential bc curl flex bison libelf-dev libssl-dev
+# sudo mkdir -p /usr/src/linux
 # Note that I looked this up - the automated approach above didn't work
-wget https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.5.tar.gz
-sudo tar --strip-components=1 -xzf linux-6.5.tar.gz -C /usr/src/linux
-cd /usr/src/linux
+# wget https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.5.tar.gz
+# sudo tar --strip-components=1 -xzf linux-6.5.tar.gz -C /usr/src/linux
+# cd /usr/src/linux
 # zcat /proc/config.gz > /tmp/.config
-sudo make ARCH=x86 oldconfig
-sudo make ARCH=x86 prepare
+# sudo make ARCH=x86 oldconfig
+# sudo make ARCH=x86 prepare
 # sudo mkdir -p /lib/modules/$(uname -r)
-sudo ln -sf /usr/src/linux /lib/modules/$(uname -r)/source
-sudo ln -sf /usr/src/linux /lib/modules/$(uname -r)/build
+# sudo ln -sf /usr/src/linux /lib/modules/$(uname -r)/source
+# sudo ln -sf /usr/src/linux /lib/modules/$(uname -r)/build
 
 git clone --depth 1 https://github.com/libbpf/libbpf /opt/libbpf
 cd /opt/libbpf/src
 sudo make install
 
-sudo apt-get install -y libbpf-dev libcereal-dev libpcap-dev 
+sudo apt-get install -y libcereal-dev libpcap-dev 
 git clone https://github.com/bpftrace/bpftrace /opt/bpftrace
 cd /opt/bpftrace
 mkdir build
@@ -560,5 +566,5 @@ export LD_LIBRARY_PATH=/opt/libbpf/src:$LD_LIBRARY_PATH
 echo "export LD_LIBRARY_PATH=/opt/libbpf/src:$LD_LIBRARY_PATH" >> ~/.bashrc
 
 # Actually, this is easier
-sudo cp /opt/libbpf/src/*.so .
+sudo cp /opt/libbpf/src/*.so /usr/lib/
 sudo ldconfig

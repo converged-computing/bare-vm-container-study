@@ -2109,6 +2109,29 @@ for iter in $(seq 1 32); do
 done
 ```
 
+Now let's do the smaller sizes, which take a tiny bit longer (which is OK).
+
+```bash
+results=./results/test-1/bare-metal
+sresults=./results/test-1/singularity
+mkdir -p ${results} ${sresults}
+for iter in $(seq 1 32); do
+  for index in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+    do
+      # Just do one size to start, it is fastest too
+      for proc in 28 14
+        do
+       if [[ ! -f "${results}/${index}-${iter}-${proc}.out" ]]; then
+       time sudo -E python3 time-wrapped.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee $results/${index}-${iter}-${proc}.out
+       fi
+       if [[ ! -f "${sresults}/${index}-${iter}-${proc}.out" ]]; then
+         time sudo -E -E python3 time-wrapped.py --index $index /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${sresults}/${index}-${iter}-${proc}.out
+      fi
+      done
+  done
+done
+```
+
 ## Categories of KProbes
 
 I had first started looking them up, but knew this would take too long.
