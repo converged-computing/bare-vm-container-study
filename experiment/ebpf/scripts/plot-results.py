@@ -167,6 +167,8 @@ def plot_results(df, lammps, outdir):
     diffs["rejected"] = rejected
     sigs = diffs[diffs.rejected == True]
 
+    import IPython
+    IPython.embed()
     # TODO add means / std for each
     diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
     sigs.to_csv(os.path.join(outdir, "two-sample-t-reject-null.csv"))

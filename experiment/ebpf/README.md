@@ -22,7 +22,7 @@ Then make a directory where we will put files for each set of N linux probes. We
 ```bash
 mkdir kprobes
 cd kprobes
-sudo -E bpftrace -l | grep "kprobe:" | split --lines=600 - kprobes.
+sudo -E bpftrace -l | grep "kprobe:" | split --lines=800 - kprobes.
 cd ../
 ```
 
@@ -43,3 +43,10 @@ date
 ```
 
 In the above, we write all the kprobes to temporary files, and remove them as we finish and append output to our matches file (`--out`) that defaults to `kprobes-present.txt` in the present working directory. If you want to cleanup as you go, then remove the temporary files after you use them. Otherwise, move them somewhere else. This exercise runs 69 files with 800 kprobes each.
+
+When split into 600 functions each:
+
+Tue Jun 25 03:28:16 MDT 2024
+vanessa@lima-ebpf:/opt/bpftrace$ cat start-time.txt 
+Tue Jun 25 02:41:11 MDT 2024
+
