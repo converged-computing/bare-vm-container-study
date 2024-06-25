@@ -568,3 +568,19 @@ echo "export LD_LIBRARY_PATH=/opt/libbpf/src:$LD_LIBRARY_PATH" >> ~/.bashrc
 # Actually, this is easier
 sudo cp /opt/libbpf/src/*.so /usr/lib/
 sudo ldconfig
+
+# sudo cp /usr/src/linux-gcp-6.5-headers-6.5.0-1022/arch/sh/include/asm/
+# /usr/src/linux-gcp-6.5-headers-6.5.0-1022/arch/sh/include/asm
+# /usr/src/linux-headers-6.5.0-1022-gcp/arch/x86/include/generated/uapi/asm
+# /usr/src/linux-headers-6.5.0-1022-gcp/arch/x86/include/generated/asm
+# /usr/src/linux-headers-6.5.0-1022-gcp/arch/x86/include/asm
+# /usr/include/x86_64-linux-gnu/asm
+# /usr/local/go/pkg/tool/linux_amd64/asm
+# /usr/local/go/src/cmd/asm
+# /usr/local/go/src/cmd/asm/internal/asm
+# /usr/local/go/src/cmd/vet/testdata/asm
+# /home/vanessa/.local/lib/python3.10/site-packages/tensorflow/include/external/boringssl/src/crypto/fipsmodule/bn/asm
+# /opt/bcc/libbpf-tools/bpftool/libbpf/include/asm
+# /opt/bcc/src/cc/libbpf/include/asm
+# /opt/libbpf/include/asm
+

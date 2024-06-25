@@ -1,0 +1,50 @@
+# This example requires Lima v0.8.0 or later
+images:
+- location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+  arch: "x86_64"
+- location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+  arch: "aarch64"
+
+cpus: 4
+memory: "10GiB"
+
+mounts:
+- location: "~"
+  writable: true
+- location: "/tmp/lima"
+  writable: true
+provision:
+- mode: system
+  script: |
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y apt-transport-https ca-certificates curl clang llvm llvm-dev libclang-dev jq cmake git clang
+    apt-get install -y libelf-dev libpcap-dev libbfd-dev binutils-dev build-essential make zip bison flex
+    apt-get install -y libcereal-dev libpcap-dev 
+    apt-get install -y iperf3 netperf arping
+    apt-get install -y linux-tools-common linux-tools-$(uname -r) 
+    apt-get install -y bpfcc-tools
+    apt-get install -y python3-pip    
+    git clone --depth 1 https://github.com/libbpf/libbpf /opt/libbpf
+    cd /opt/libbpf/src
+    make install
+    cp /opt/libbpf/src/*.so /usr/lib/
+    ldconfig
+    git clone https://github.com/iovisor/bcc /opt/bcc
+    cd /opt/bcc
+    mkdir build
+    cd build
+    cmake .. -DCMAKE_INSTALL_PREFIX=/usr
+    make
+    make install
+    rm -rf /usr/lib/python3/dist-packages/bcc/*
+    cp -r /opt/bcc/build/src/python/bcc-python3/bcc/* /usr/lib/python3/dist-packages/bcc/
+    # To run in user space needs:
+    # ulimit -l unlimited
+    git clone https://github.com/bpftrace/bpftrace /opt/bpftrace
+    cd /opt/bpftrace
+    mkdir build
+    cmake -B ./build -DBUILD_TESTING=OFF
+    make -C ./build
+    make -C ./build/ install
+    # export LD_LIBRARY_PATH=/opt/libbpf/src:$LD_LIBRARY_PATH

@@ -16,17 +16,20 @@ RUN apt-get update && \
       flex \
       git \
       iperf3 \
+      kmod \
       libcereal-dev \
       libedit-dev \
       libpcap-dev \ 
       llvm \
       llvm-dev \
       libclang-dev \
+      linux-headers-$(uname -r) \      
       netperf \
       python3-pip \
       zlib1g-dev \
       libelf-dev \
-      zip
+      zip && \
+      apt-get clean
 
 RUN git clone https://github.com/iovisor/bcc /opt/bcc 
 WORKDIR /opt/bcc

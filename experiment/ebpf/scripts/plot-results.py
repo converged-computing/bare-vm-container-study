@@ -2,14 +2,11 @@
 
 import json
 import argparse
-import collections
 import fnmatch
 import os
-import numpy
 
 from scipy import stats
 from statsmodels.sandbox.stats.multicomp import multipletests
-from collections import OrderedDict
 import matplotlib.pyplot as plt
 import metricsoperator.utils as utils
 import pandas
@@ -105,13 +102,13 @@ def plot_lammps(lammps, outdir):
         hue="experiment",
         palette="Set2",
     )
-    plt.title(f"LAMMPS wall-time across sizes with/without eBPF")
+    plt.title("LAMMPS wall-time across sizes with/without eBPF")
     ax.set_xlabel("size (ranks)", fontsize=16)
     ax.set_ylabel("Time (seconds)", fontsize=16)
     ax.set_xticklabels(ax.get_xmajorticklabels(), fontsize=14)
     ax.set_yticklabels(ax.get_yticks(), fontsize=14)
     plt.subplots_adjust(left=0.2, bottom=0.2)
-    plt.savefig(os.path.join(outdir, f"lammps-times.png"))
+    plt.savefig(os.path.join(outdir, "lammps-times.png"))
     plt.clf()
     plt.close()
 
@@ -130,7 +127,7 @@ def plot_results(df, lammps, outdir):
     idx = 0
     not_used_singularity = set()
     not_used_bare_metal = set()
-    
+
     for function in df.function.unique():
         subset = df[df.function == function]
         for size in df.ranks.unique():
@@ -163,12 +160,13 @@ def plot_results(df, lammps, outdir):
     diffs = diffs.sort_values("pvalue")
 
     # Bonferonni correction
-    rejected, p_adjusted, _, alpha_corrected = multipletests(diffs['pvalue'].tolist(), method='bonferroni')
-    diffs['pvalue'] = p_adjusted
-    diffs['rejected'] = rejected
+    rejected, p_adjusted, _, alpha_corrected = multipletests(
+        diffs["pvalue"].tolist(), method="bonferroni"
+    )
+    diffs["pvalue"] = p_adjusted
+    diffs["rejected"] = rejected
     sigs = diffs[diffs.rejected == True]
-    import IPython
-        
+
     # TODO add means / std for each
     diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
     sigs.to_csv(os.path.join(outdir, "two-sample-t-reject-null.csv"))
@@ -182,7 +180,7 @@ def plot_results(df, lammps, outdir):
     )
 
 
-def plot_ebpf(df):
+def plot_ebpf(df, outdir):
     for func in df.function.unique():
         subset = df[df.function == func]
         print(subset)
