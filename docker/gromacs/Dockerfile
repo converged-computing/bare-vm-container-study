@@ -173,7 +173,6 @@ RUN apt-get update && \
         dnsutils telnet strace git g++ \
         unzip bzip2
 
-# install openmpi with cuda
 WORKDIR /opt
 RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.2.tar.gz && \
     tar -xzvf openmpi-4.1.2.tar.gz && \

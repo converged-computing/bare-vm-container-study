@@ -113,11 +113,37 @@ def plot_lammps(lammps, outdir):
     plt.close()
 
 
+def plot_distribution(singularity, bare_metal, norm_dist_out):
+    sidx = 0
+    histdf = pandas.DataFrame(columns=["experiment", "nanoseconds"])
+    for value in singularity:
+        histdf.loc[sidx] = ["singularity", value]
+        sidx += 1
+    for value in bare_metal:
+        histdf.loc[sidx] = ["bare-metal", value]
+        sidx += 1
+
+    ax = sns.histplot(
+        data=histdf,
+        x="nanoseconds",
+        hue="experiment",
+        palette="Set2",
+    )
+    plt.title(f"Distribution times for {function} for size {size}")
+    ax.set_xlabel("Time (nanoseconds)", fontsize=16)
+    ax.set_xticklabels(ax.get_xmajorticklabels(), fontsize=14)
+    ax.set_yticklabels(ax.get_yticks(), fontsize=14)
+    plt.subplots_adjust(left=0.2, bottom=0.2)
+    plt.savefig(os.path.join(norm_dist_out, f"lammps-{function}-size-{size}.png"))
+    plt.clf()
+    plt.close()
+
+
 def plot_results(df, lammps, outdir):
     """
     Plot results
     """
-    plot_lammps(lammps, outdir)
+    # plot_lammps(lammps, outdir)
 
     # For each metric, see if there is significant difference between means
     # we would want to correct for multiple samples too.
@@ -125,8 +151,13 @@ def plot_results(df, lammps, outdir):
     # Keep record of results for each
     diffs = pandas.DataFrame(columns=["function", "size", "pvalue", "statistic"])
     idx = 0
-    not_used_singularity = set()
-    not_used_bare_metal = set()
+    not_used_singularity = {}
+    not_used_bare_metal = {}
+
+    # Check for normal distribution
+    norm_dist_out = os.path.join(outdir, "check-normal")
+    if not os.path.exists(norm_dist_out):
+        os.makedirs(norm_dist_out)
 
     for function in df.function.unique():
         subset = df[df.function == function]
@@ -141,17 +172,27 @@ def plot_results(df, lammps, outdir):
 
             # We would want to sanity check these and understand why!
             if len(singularity) == 0:
-                not_used_singularity.add(function)
-                print(f"Warning function {function} is not used for singularity.")
+                if size not in not_used_singularity:
+                    not_used_singularity[str(size)] = []
+                not_used_singularity[str(size)].append(function)
+                print(
+                    f"Warning function {function} is not used for singularity size {size}."
+                )
             if len(bare_metal) == 0:
-                not_used_bare_metal.add(function)
-                print(f"Warning function {function} is not used for bare metal.")
+                if size not in not_used_bare_metal:
+                    not_used_bare_metal[str(size)] = []
+                not_used_bare_metal[str(size)].append(function)
+                print(
+                    f"Warning function {function} is not used for bare metal size {size}."
+                )
             if len(singularity) == 0 or len(bare_metal) == 0:
                 continue
 
             # For now require >1 for both (we need more samples here)
             if len(singularity) <= 1 or len(bare_metal) <= 1:
                 continue
+
+            # plot_distribution(singularity, bare_metal, norm_dist_out)
 
             res = stats.ttest_ind(singularity, bare_metal)
             diffs.loc[idx, :] = [function, size, res.pvalue, res.statistic]
@@ -167,19 +208,21 @@ def plot_results(df, lammps, outdir):
     diffs["rejected"] = rejected
     sigs = diffs[diffs.rejected == True]
 
-    import IPython
-    IPython.embed()
     # TODO add means / std for each
     diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
     sigs.to_csv(os.path.join(outdir, "two-sample-t-reject-null.csv"))
-    utils.write_file(
-        "\n".join(list(not_used_singularity)),
-        os.path.join(outdir, "functions-not-used-singularity.txt"),
+    utils.write_json(
+        not_used_singularity,
+        os.path.join(outdir, "functions-not-used-singularity.json"),
     )
-    utils.write_file(
-        "\n".join(list(not_used_bare_metal)),
-        os.path.join(outdir, "functions-not-used-bare-metal.txt"),
+    utils.write_json(
+        not_used_bare_metal,
+        os.path.join(outdir, "functions-not-used-bare-metal.json"),
     )
+
+    import IPython
+
+    IPython.embed()
 
 
 def plot_ebpf(df, outdir):
@@ -241,7 +284,9 @@ def parse_data(files):
     )
     idxl = 0
 
-    for filename in files:
+    total = len(files)
+    for i, filename in enumerate(files):
+        print(f"Parsing {i} of {total}", end="\r")
         parsed = os.path.relpath(filename, here)
         pieces = parsed.split(os.sep)
         experiment = pieces[-2]

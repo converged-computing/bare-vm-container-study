@@ -23,6 +23,7 @@ affine_move_task
 align_vdso_addr
 alloc_buffer_head
 alloc_fd
+alloc_fdtable
 alloc_new_pud.constprop.0
 alloc_pages
 alloc_pages_bulk_array_mempolicy
@@ -30,10 +31,13 @@ alloc_pid
 alloc_pipe_info
 alloc_tty_struct
 alloc_vmap_area
+allocate_slab
 always_delete_dentry
 anon_pipe_buf_release
 anon_vma_clone
 anon_vma_compatible
+anon_vma_ctor
+anon_vma_fork
 anon_vma_interval_tree_insert
 anon_vma_interval_tree_remove
 anon_vma_name
@@ -88,16 +92,29 @@ autofs_show_options
 autoremove_wake_function
 available_idle_cpu
 balance_fair
+bio_add_page
+bio_associate_blkg_from_css
+bio_crypt_ctx_mergeable
+bio_crypt_rq_ctx_compatible
+bio_split_rw
 bio_uninit
 bit_wait_io
 bit_waitqueue
 blake2s_compress
 blake2s_update
 blk_account_io_completion.part.0
+blk_account_io_merge_bio
+blk_add_rq_to_plug
+blk_add_timer
+blk_attempt_bio_merge.part.0
+blk_cgroup_bio_start
 blk_cgroup_congested
+blk_integrity_merge_bio
 blk_mq_complete_request_remote
 blk_mq_flush_plug_list
+blk_mq_get_budget_and_tag
 blk_mq_put_tags
+blk_mq_sched_bio_merge
 blk_start_plug
 block_devnode
 block_dirty_folio
@@ -153,6 +170,7 @@ check_preempt_wakeup
 check_spread.isra.0
 check_stack_object
 check_tty_count.isra.0
+child_wait_callback
 chrdev_open
 class_to_subsys
 clean_bdev_aliases
@@ -172,11 +190,14 @@ completion_done
 consume_obj_stock
 consume_stock
 copy_creds
+copy_fd_bitmaps
 copy_fpstate_to_sigframe
 copy_from_kernel_nofault_allowed
 copy_from_read_buf
 copy_mc_to_kernel
 copy_namespaces
+copy_page_range
+copy_pte_range
 copy_semundo
 copy_sighand
 copy_signal
@@ -245,6 +266,7 @@ device_get_devnode
 devpts_get_priv
 devpts_kill_index
 devpts_new_index
+devpts_pty_kill
 dget_parent
 die_cpus_read
 disassociate_ctty
@@ -305,7 +327,9 @@ drain_stock
 drop_buffers.constprop.0
 drop_nlink
 dst_release
+dup_fd
 dup_user_cpus_ptr
+dup_userfaultfd_complete
 end_bio_bh_io_sync
 enqueue_entity
 enqueue_hrtimer
@@ -379,6 +403,7 @@ ext4_ext_search_left
 ext4_ext_search_right
 ext4_ext_try_to_merge_right
 ext4_ext_try_to_merge_up
+ext4_extent_block_csum_set
 ext4_fc_del
 ext4_fc_init_inode
 ext4_fc_track_create
@@ -387,6 +412,7 @@ ext4_fc_track_range
 ext4_fc_track_unlink
 ext4_file_mmap
 ext4_file_read_iter
+ext4_finish_bio
 ext4_fname_free_filename
 ext4_fname_from_fscrypt_name
 ext4_fname_setup_ci_filename
@@ -439,8 +465,10 @@ ext4_mb_use_best_found
 ext4_mb_use_preallocated.constprop.0
 ext4_nonda_switch
 ext4_orphan_add
+ext4_put_io_end_defer
 ext4_release_dir
 ext4_release_file
+ext4_release_io_end
 ext4_sample_last_mounted
 ext4_sb_block_valid
 ext4_set_inode_flags
@@ -595,6 +623,7 @@ get_close_on_exec
 get_gate_vma
 get_l4proto
 get_mem_cgroup_from_mm
+get_mm_exe_file
 get_mmap_base
 get_nohz_timer_target
 get_old_pud
@@ -706,11 +735,13 @@ init_file
 init_numa_balancing
 init_special_inode
 init_timer_key
+init_wait_entry
 inode_add_bytes
 inode_add_lru
 inode_free_by_rcu
 inode_has_buffers
 inode_init_always
+inode_init_once
 inode_init_owner
 inode_io_list_del
 inode_io_list_move_locked
@@ -831,6 +862,7 @@ ldsem_down_read
 ldsem_down_read_trylock
 ldsem_up_read
 ldt_arch_exit_mmap
+ldt_dup_context
 legitimize_links
 load_balance
 load_misc_binary
@@ -1006,9 +1038,11 @@ physical_package_id_show
 pick_file
 pick_link
 pick_next_entity
+pick_next_task_dl
 pick_next_task_fair
 pick_next_task_idle
 pick_next_task_stop
+pick_task_rt
 pid_delete_dentry
 pid_task
 pid_vnr
@@ -1028,8 +1062,10 @@ policy_nodemask
 pollwake
 posix_acl_create
 posix_cpu_timers_exit_group
+posix_cputimers_group_init
 prep_compound_page
 prepare_creds
+prepare_to_wait_event
 prepend_copy
 privileged_wrt_inode_uidgid
 proc_alloc_inode
@@ -1098,6 +1134,7 @@ raw_notifier_call_chain
 raw_spin_rq_lock_nested
 raw_spin_rq_unlock
 raw_v4_input
+rcuwait_wake_up
 read_pages
 readlink_copy
 rebalance_domains
@@ -1119,6 +1156,7 @@ resolve_normal_ct
 restore_altstack
 restore_fpregs_from_fpstate
 restore_fpregs_from_user
+retarget_shared_pending.isra.0
 reweight_entity
 rmqueue_bulk
 round_jiffies_up
@@ -1340,6 +1378,7 @@ task_rq_lock
 task_tick_fair
 task_tick_mm_cid
 task_wants_autogroup
+task_woken_rt
 task_work_add
 task_work_run
 taskstats_exit
@@ -1363,6 +1402,7 @@ tcp_mstamp_refresh
 tcp_mtup_init
 tcp_options
 tcp_options_write
+tcp_orphan_count_sum
 tcp_parse_md5sig_option
 tcp_parse_options
 tcp_rate_skb_sent
@@ -1394,6 +1434,7 @@ tlb_gather_mmu
 tlb_gather_mmu_fullmm
 tlb_is_not_lazy
 touch_atime
+track_pfn_copy
 track_pfn_insert
 trigger_load_balance
 truncate_cleanup_folio
@@ -1414,6 +1455,7 @@ ttwu_queue_wakelist
 tty_add_file
 tty_audit_add_data
 tty_audit_exit
+tty_audit_fork
 tty_buffer_flush
 tty_buffer_flush_work
 tty_buffer_init
@@ -1478,9 +1520,12 @@ update_vsyscall
 uprobe_clear_state
 uprobe_copy_process
 uprobe_deny_signal
+uprobe_dup_mmap
+uprobe_end_dup_mmap
 uprobe_free_utask
 uprobe_mmap
 uprobe_munmap
+uprobe_start_dup_mmap
 urandom_read_iter
 user_disable_single_step
 userfaultfd_unmap_complete
@@ -1489,6 +1534,7 @@ validate_xmit_xfrm
 vdso_fault
 verify_dirent_name
 vfree.part.0
+vfree_atomic
 vfs_getattr_nosec
 vfs_open
 vfs_readlink
@@ -1510,6 +1556,7 @@ vma_alloc_folio
 vma_dup_policy
 vma_interval_tree_augment_rotate
 vma_interval_tree_insert
+vma_interval_tree_insert_after
 vma_is_secretmem
 vma_link
 vma_merge
@@ -1537,6 +1584,7 @@ walk_to_pmd
 wb_get_lookup.part.0
 wb_io_lists_depopulated
 wb_io_lists_populated
+wb_timer_fn
 wbt_data_dir
 wbt_done
 wbt_inflight_cb
