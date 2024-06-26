@@ -42,11 +42,11 @@ struct event_t {
     u64 time;
     u64 freq;
 };
-struct func_key_t {
-    u64 pid_tgid;
+struct func_t {
+    u64 ts;
     u64 ip;
 };
-BPF_HASH(ip_map, struct func_key_t, u64);
+BPF_HASH(ip_map, u64, struct func_t);
 BPF_HASH(stats_map, struct stats_key_t, struct stats_t);
 BPF_RINGBUF_OUTPUT(events, 1 << 8);
 
@@ -59,11 +59,10 @@ int start_timing(struct pt_regs *ctx) {
 
     FILTER
 
-    struct func_key_t key = {};
-    key.pid_tgid = pid_tgid;
-    key.ip =  PT_REGS_IP(ctx);
-    u64 ts = bpf_ktime_get_ns();
-    ip_map.update(&key, &ts);
+    struct func_t func = {};
+    func.ip =  PT_REGS_IP(ctx);
+    func.ts = bpf_ktime_get_ns();
+    ip_map.update(&pid_tgid, &func);
     return 0;
 }
 
@@ -72,25 +71,23 @@ int stop_timing(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 pid = pid_tgid;
 
-    // calculate delta time
-    struct func_key_t fkey = {};
-    fkey.pid_tgid = pid_tgid;
-    fkey.ip =  PT_REGS_IP(ctx);
-    tsp = ip_map.lookup(&fkey);
+    FILTER
+
+    struct func_t *func = ip_map.lookup(&pid_tgid);
     
     // This means we missed the start
-    if (tsp == 0) {
+    if (func == 0) {
         return 0;
     }
 
     struct stats_key_t skey = {};
-    skey.interval = *tsp / INTERVAL_VALUE;
+    skey.interval = func->ts / INTERVAL_VALUE;
     skey.pid_tgid = pid_tgid;
-    skey.ip = fkey.ip;
+    skey.ip = func->ip;
 
     struct stats_t zero = {};
     struct stats_t* stats = stats_map.lookup_or_init(&skey, &zero); 
-    stats->time += bpf_ktime_get_ns() - *tsp;
+    stats->time += bpf_ktime_get_ns() - func->ts;
     stats->freq++;
 
     if (skey.interval > 0) {
@@ -108,7 +105,7 @@ int stop_timing(struct pt_regs *ctx) {
             stats_map.delete(&skey);
         } 
     }
-    ip_map.delete(&fkey);
+    ip_map.delete(&pid_tgid);
     return 0;
 }
 """
@@ -225,20 +222,7 @@ def main():
     print(f"Timing {number_functions} functions.")
 
     # Wait for lammps to finish running
-    p.wait()
-
-    # Print output - for the experiments we will save it to file
-    # Better would be to open an sqlite database, and save to a table
-    # based on the program, pid, and iteration.
-    out, err = p.communicate()
-    if p.returncode == 0:
-        out = out.decode("utf-8")
-        print(out)
-        print("Run was successful.")
-    else:
-        err = err.decode("utf-8")
-        print(err)
-        print("Run was not successful.")
+    
 
     print()
     print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))
@@ -260,47 +244,54 @@ def main():
         obj = {
             "pid": ctypes.c_uint32(stats.pid_tgid).value,
             "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
-            "name": BPF.sym(k.value, -1).decode("utf-8"),
-            "freq": stats.freq,
-            "time": stats.time,
+        }
+        fname = program.sym(stats.ip, obj["pid"], show_module=True).decode()
+        if "unknown" in fname:
+            fname = program.ksym(stats.ip, show_module=True).decode()
+        if "unknown" in fname:
+            cat = "unknown"
+        else:
+            cat = fname.split(" ")[1]
+        obj = {
+            "pid": ctypes.c_uint32(stats.pid_tgid).value,
+            "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
+            "name": fname,
+            "cat": cat,
+            "ph": "C",
+            "ts": stats.interval,
+            "args": {"time": stats.time,"freq": stats.freq},
         }
         print(json.dumps(obj))
 
     program["events"].open_ring_buffer(print_event)
     timeout_interval_secs = 30
     interval = timedelta(seconds=int(timeout_interval_secs))
+    def exit_function():
+        p.wait()
+
+        # Print output - for the experiments we will save it to file
+        # Better would be to open an sqlite database, and save to a table
+        # based on the program, pid, and iteration.
+        out, err = p.communicate()
+        if p.returncode == 0:
+            out = out.decode("utf-8")
+            print(out)
+            print("Run was successful.")
+        else:
+            err = err.decode("utf-8")
+            print(err)
+            print("Run was not successful.")
     while True:
         try:
             program.ring_buffer_consume()
             time.sleep(0.5)
             if datetime.now() - last_updated > interval:
                 print(f"No events received for {timeout_interval_secs} secs. Exiting.")
+                exit_function()
                 exit()
         except KeyboardInterrupt:
+            exit_function()
             exit()
-
-
-
-    # Get a table from the program to print to the terminal
-    stats = program.get_table("stats")
-    results = []
-    for k, v in stats.items():
-        results.append(
-            {
-                "func": BPF.sym(k.value, -1).decode("utf-8"),
-                "count": v.freq,
-                "time_nsecs": v.time,
-            }
-        )
-        print("%-36s %8s %16s" % (BPF.sym(k.value, -1).decode("utf-8"), v.freq, v.time))
-    print("\n=== RESULTS START")
-    print(json.dumps(results))
-    print("=== RESULTS END")
-    stats.clear()
-
-    # In case someone deleted it...
-    if os.path.exists(tmp_file):
-        os.remove(tmp_file)
 
     # This only works for one function
     # program.detach_kprobe(event_re=pattern, fn_name="start_timing")
