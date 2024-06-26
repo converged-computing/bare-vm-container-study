@@ -12,6 +12,7 @@ import json
 import time
 import ctypes
 from datetime import datetime, timedelta
+import logging
 
 from bcc import BPF
 
@@ -225,7 +226,7 @@ def main():
     
 
     print()
-    print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))
+    #print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))
 
     last_updated = datetime.now()
     class Stats(ctypes.Structure):
@@ -261,8 +262,19 @@ def main():
             "ts": stats.interval,
             "args": {"time": stats.time,"freq": stats.freq},
         }
-        print(json.dumps(obj))
-
+        logging.info(json.dumps(obj))
+    try:
+        os.remove("targeted_time.pfw")
+    except OSError:
+        pass
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler("targeted_time.pfw", mode="a", encoding="utf-8"),
+        ],
+        format="%(message)s",
+    )
+    logging.info("[")
     program["events"].open_ring_buffer(print_event)
     timeout_interval_secs = 30
     interval = timedelta(seconds=int(timeout_interval_secs))
