@@ -60,6 +60,8 @@ mkdir -p applications
 singularity pull docker://ghcr.io/converged-computing/metric-lammps:cpu
 ```
 
+#### Kprobes for LAMMPS
+
 ```console
 date > start-time.txt
 
@@ -73,6 +75,40 @@ done
 
 # Print the time when you finish
 date
+```
+
+#### Experiment Runs for LAMMPS
+
+We are going to make a directory just for lammps input files. Since this set needs to run 2/recording, we will try for 400 total.
+The files will be prefixed based on the application, and numbered so we can use the filename in the output.
+
+```console
+mkdir kprobes
+cd kprobes
+cat ../applications/lammps-bare-metal.txt ../applications/lammps-singularity.txt | uniq | sort | split --numeric-suffixes=1 --lines=400 - lammps.
+cd ../
+```
+
+And then to run lammps across sizes:
+
+```
+results=./results/lammps/bare-metal
+sresults=./results/lammps/singularity
+mkdir -p ${results} ${sresults}
+for iter in $(seq 1 32); do
+  for filename in $(ls kprobes); do
+      for proc in 56 28 14; do
+       prefix="${results}/${filename}-size-${proc}-${iter}"
+       if [[ ! -f "${prefix}.out" ]]; then
+         time sudo -E python3 wrapped-time.py --file kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+       fi
+       prefix="${sresults}/${filename}-size-${proc}-${iter}"
+       if [[ ! -f "${prefix}.out" ]]; then
+         time sudo -E python3 wrapped-time.py --file kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+      fi
+      done
+   done
+done
 ```
 
 #### AMG2023
@@ -89,14 +125,6 @@ Since this container requires sourcing spack, we need to write a bash script to 
 . /etc/profile.d/z10_spack_environment.sh
 amg -P 8 6 4 -n 64 64 128
 ```
-And then copy the script and run.
-
-```bash
-metric-amg2023_spack-slim-cpu.sif
-
-time mpirun -np 192 --hostfile ./hostfile.txt /shared/bin/singularity exec /shared/containers/metric-amg2023_spack-slim-cpu.sif /bin/bash ./run_amg.sh
-```
-
 
 ```console
 date > start-time.txt
@@ -110,6 +138,7 @@ done
 
 # Print the time when you finish
 date
+
 ```
 
 We will do the spack environment separately.
