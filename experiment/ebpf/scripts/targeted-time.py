@@ -5,9 +5,11 @@
 
 import argparse
 import os
+import tempfile
 import subprocess
 import sys
 import json
+import time
 
 from bcc import BPF
 
@@ -33,6 +35,8 @@ int start_timing(struct pt_regs *ctx) {
     // This should be the pid of the task group
     // I think this is what subprocess gives back
     u32 pid = pid_tgid;
+
+    FILTER
 
     u64 ts = bpf_ktime_get_ns();
     u64 ip = PT_REGS_IP(ctx);
@@ -78,6 +82,11 @@ int stop_timing(struct pt_regs *ctx) {
 """
 
 
+def write_file(path, content):
+    with open(path, "w") as fd:
+        fd.write(content)
+
+
 def get_matches(pattern):
     """
     I used this for prototyping and getting up to the max of 1K functions.
@@ -100,6 +109,37 @@ def get_parser():
     return parser
 
 
+wrapper_template = """#!/bin/bash
+
+echo "Program running has pid $$"
+
+# This is probably too big, be conservative
+sleep 5
+
+# This ensures our command inherits the same parent id
+exec %s
+"""
+
+
+def get_tmpfile():
+    """
+    Get a temporary file name
+    """
+    tmpdir = tempfile.gettempdir()
+    temp_name = "wrapper-" + next(tempfile._get_candidate_names()) + ".sh"
+    return os.path.join(tmpdir, temp_name)
+
+
+def add_filter(pid):
+    """
+    Add a filter to a tgid (thread group id) based on
+    a program pid. A group of pids can belong to a tgid,
+    and usually the first is the tgid. We can use a function
+    to derive it.
+    """
+    return bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }")
+
+
 def main():
     """
     Run the ebpf program. Usage:
@@ -112,17 +152,23 @@ def main():
     # If we don't have a command or pid, no go
     if not command:
         sys.exit("We need a command to follow the script, bro-shizzle.")
-    if args.index is None:
-        sys.exit("Please provide an index for functions to choose.")
+    # if args.index is None:
+    #    sys.exit("Please provide an index for functions to choose.")
 
-    # We need to run the eBPF program first so we capture everything
-    # This assumes nothing else running on your system
-    # Or if something is running, it is equivalent between test cases
-    # and a "diff" will subtract it
-    print(f"👀️ Preparing program to run alongside {command}...")
+    # Prepare the wrapper template for our program
+    wrapper = wrapper_template % " ".join(command)
+    print(wrapper)
+    tmp_file = get_tmpfile()
+    write_file(tmp_file, wrapper)
+
+    command = ["/bin/bash", tmp_file]
+    start = time.time()
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    program_text = add_filter(p.pid)
+    print(f"👀️ Watching pid {p.pid}...")
 
     # Load the ebpf program
-    program = BPF(text=bpf_text)
+    program = BPF(text=program_text)
     patterns = functions[args.index]
 
     # patterns should be regular expression oriented
@@ -137,14 +183,14 @@ def main():
     if matched == 0:
         sys.exit('0 functions matched by "{pattern}". Exiting.')
 
-    # Launch the task via subprocess.
-    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    end = time.time()
+    print(f"Setting up eBPF took {end-start} seconds.")
 
     # We have to divide by two since we have a start/stop
     number_functions = int(matched / 2)
     print(f"Timing {number_functions} functions.")
 
-    # I'm not sure what overhead this adds
+    # Wait for lammps to finish running
     p.wait()
 
     # Print output - for the experiments we will save it to file
@@ -178,13 +224,18 @@ def main():
     print("\n=== RESULTS START")
     print(json.dumps(results))
     print("=== RESULTS END")
+    stats.clear()
+
+    # In case someone deleted it...
+    if os.path.exists(tmp_file):
+        os.remove(tmp_file)
 
     # This only works for one function
     # program.detach_kprobe(event_re=pattern, fn_name="start_timing")
     # program.detach_kretprobe(event_re=pattern, fn_name="stop_timing")
 
 
-# These are our targeted functions, 6 groups
+# These are our targeted functions, 15 groups
 functions = [
     [
         "I_BDEV",
@@ -387,6 +438,8 @@ functions = [
         "blk_mq_hctx_mark_pending",
         "blk_mq_put_tags",
         "blk_mq_sched_bio_merge",
+    ],
+    [
         "blk_queue_exit",
         "blk_start_plug",
         "blk_stat_timer_fn",
@@ -789,6 +842,8 @@ functions = [
         "down_trylock",
         "down_write",
         "down_write_killable",
+    ],
+    [
         "downgrade_write",
         "dput",
         "dput_to_list",
@@ -1191,6 +1246,8 @@ functions = [
         "fscrypt_put_encryption_info",
         "fscrypt_set_bio_crypt_ctx",
         "fscrypt_setup_filename",
+    ],
+    [
         "fscrypt_show_test_dummy_encryption",
         "fsnotify",
         "fsnotify_connector_destroy_workfn",
@@ -1593,6 +1650,8 @@ functions = [
         "kernelmode_fixup_or_oops",
         "kernfs_activate_one",
         "kernfs_dir_fop_release",
+    ],
+    [
         "kernfs_dir_pos",
         "kernfs_dop_revalidate",
         "kernfs_get",
@@ -1995,6 +2054,8 @@ functions = [
         "ovl_path_check_origin_xattr",
         "ovl_path_lower",
         "ovl_path_lowerdata",
+    ],
+    [
         "ovl_path_open",
         "ovl_path_type",
         "ovl_release",
@@ -2397,6 +2458,8 @@ functions = [
         "set_close_on_exec",
         "set_cpus_allowed_common",
         "set_cpus_allowed_ptr",
+    ],
+    [
         "set_cred_ucounts",
         "set_current_blocked",
         "set_disk_ro",
@@ -2799,6 +2862,8 @@ functions = [
         "tick_nohz_get_next_hrtimer",
         "tick_nohz_get_sleep_length",
         "tick_nohz_idle_enter",
+    ],
+    [
         "tick_nohz_idle_exit",
         "tick_nohz_idle_got_tick",
         "tick_nohz_idle_retain_tick",
