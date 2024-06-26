@@ -10,8 +10,12 @@ import subprocess
 import sys
 import json
 import time
+import ctypes
+from datetime import datetime, timedelta
 
 from bcc import BPF
+
+INTERVAL_VALUE = 1e9 # this is 1 second
 
 # This is the BPF program
 # We are basically keeping track of start and end times
@@ -21,13 +25,30 @@ from bcc import BPF
 bpf_text = """
 #include <uapi/linux/ptrace.h>
 
+struct stats_key_t {
+    u64 interval;
+    u64 pid_tgid;
+    u64 ip;
+};
+
 struct stats_t {
     u64 time;
     u64 freq;
 };
-BPF_HASH(start, u32);
-BPF_HASH(ipaddr, u32);
-BPF_HASH(stats, u64, struct stats_t);
+struct event_t {
+    u64 interval;
+    u64 pid_tgid;
+    u64 ip;
+    u64 time;
+    u64 freq;
+};
+struct func_key_t {
+    u64 pid_tgid;
+    u64 ip;
+};
+BPF_HASH(ip_map, struct func_key_t, u64);
+BPF_HASH(stats_map, struct stats_key_t, struct stats_t);
+BPF_RINGBUF_OUTPUT(events, 1 << 8);
 
 int start_timing(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -38,11 +59,11 @@ int start_timing(struct pt_regs *ctx) {
 
     FILTER
 
+    struct func_key_t key = {};
+    key.pid_tgid = pid_tgid;
+    key.ip =  PT_REGS_IP(ctx);
     u64 ts = bpf_ktime_get_ns();
-    u64 ip = PT_REGS_IP(ctx);
-    ipaddr.update(&pid, &ip);
-    start.update(&pid, &ts);
-
+    ip_map.update(&key, &ts);
     return 0;
 }
 
@@ -52,31 +73,42 @@ int stop_timing(struct pt_regs *ctx) {
     u32 pid = pid_tgid;
 
     // calculate delta time
-    tsp = start.lookup(&pid);
-
+    struct func_key_t fkey = {};
+    fkey.pid_tgid = pid_tgid;
+    fkey.ip =  PT_REGS_IP(ctx);
+    tsp = ip_map.lookup(&fkey);
+    
     // This means we missed the start
     if (tsp == 0) {
         return 0;
     }
-    delta = bpf_ktime_get_ns() - *tsp;
-    start.delete(&pid);
 
-    u64 ip, *ipp = ipaddr.lookup(&pid);
-    if (ipp) {
-        ip = *ipp;
-        struct stats_t *stat = stats.lookup(&ip);
-        if (stat) {
-            stat->time += delta;
-            stat->freq++;
-        } else {
-            struct stats_t s = {};
-            s.time = delta;
-            s.freq = 1;
-            stats.update(&ip, &s);
-        }
-        ipaddr.delete(&pid);
+    struct stats_key_t skey = {};
+    skey.interval = *tsp / INTERVAL_VALUE;
+    skey.pid_tgid = pid_tgid;
+    skey.ip = fkey.ip;
+
+    struct stats_t zero = {};
+    struct stats_t* stats = stats_map.lookup_or_init(&skey, &zero); 
+    stats->time += bpf_ktime_get_ns() - *tsp;
+    stats->freq++;
+
+    if (skey.interval > 0) {
+        // look for previous interval if present emit
+        skey.interval--;
+        stats = stats_map.lookup(&skey);
+        if (stats != 0) {
+            struct event_t event = {};
+            event.interval = skey.interval;
+            event.pid_tgid = skey.pid_tgid;
+            event.ip = skey.ip;
+            event.time = stats->time;
+            event.freq = stats->freq;
+            events.ringbuf_output(&event, sizeof(struct event_t), 0);
+            stats_map.delete(&skey);
+        } 
     }
-
+    ip_map.delete(&fkey);
     return 0;
 }
 """
@@ -91,6 +123,7 @@ def get_matches(pattern):
     """
     I used this for prototyping and getting up to the max of 1K functions.
     """
+    bpf_text = bpf_text.replace("INTERVAL_VALUE",INTERVAL_VALUE)
     program = BPF(text=bpf_text)
     program.attach_kprobe(event_re=pattern, fn_name="start_timing")
     program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
@@ -137,7 +170,8 @@ def add_filter(pid):
     and usually the first is the tgid. We can use a function
     to derive it.
     """
-    return bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }")
+    return bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }") \
+                   .replace("INTERVAL_VALUE",str(int(INTERVAL_VALUE)))
 
 
 def main():
@@ -208,6 +242,44 @@ def main():
 
     print()
     print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))
+
+    last_updated = datetime.now()
+    class Stats(ctypes.Structure):
+        _fields_ = [
+            ("interval", ctypes.c_uint64),
+            ("pid_tgid", ctypes.c_uint64),
+            ("ip", ctypes.c_uint64),
+            ("time", ctypes.c_uint64),
+            ("freq", ctypes.c_uint64),
+        ]
+
+    def print_event(cpu, data, size):
+        global last_updated
+        last_updated = datetime.now()
+        stats = ctypes.cast(data, ctypes.POINTER(Stats)).contents            
+        obj = {
+            "pid": ctypes.c_uint32(stats.pid_tgid).value,
+            "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
+            "name": BPF.sym(k.value, -1).decode("utf-8"),
+            "freq": stats.freq,
+            "time": stats.time,
+        }
+        print(json.dumps(obj))
+
+    program["events"].open_ring_buffer(print_event)
+    timeout_interval_secs = 30
+    interval = timedelta(seconds=int(timeout_interval_secs))
+    while True:
+        try:
+            program.ring_buffer_consume()
+            time.sleep(0.5)
+            if datetime.now() - last_updated > interval:
+                print(f"No events received for {timeout_interval_secs} secs. Exiting.")
+                exit()
+        except KeyboardInterrupt:
+            exit()
+
+
 
     # Get a table from the program to print to the terminal
     stats = program.get_table("stats")
