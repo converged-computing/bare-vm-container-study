@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 
-import json
 import argparse
 import fnmatch
+import json
 import os
 
-from scipy import stats
-from statsmodels.sandbox.stats.multicomp import multipletests
 import matplotlib.pyplot as plt
 import metricsoperator.utils as utils
 import pandas
 import seaborn as sns
 from metricsoperator.metrics.app.lammps import parse_lammps
+from scipy import stats
+from statsmodels.sandbox.stats.multicomp import multipletests
 
 plt.style.use("bmh")
 here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

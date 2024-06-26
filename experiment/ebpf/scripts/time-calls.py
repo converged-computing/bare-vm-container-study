@@ -5,10 +5,10 @@
 #   sudo -E python3 time-calls.py --pattern do_sys* <program> <options> <args>
 
 import argparse
+import json
 import os
 import subprocess
 import sys
-import json
 
 from bcc import BPF
 

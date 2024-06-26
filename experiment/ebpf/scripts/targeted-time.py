@@ -4,19 +4,19 @@
 # them!
 
 import argparse
+import ctypes
+import json
+import logging
 import os
-import tempfile
 import subprocess
 import sys
-import json
+import tempfile
 import time
-import ctypes
 from datetime import datetime, timedelta
-import logging
 
 from bcc import BPF
 
-INTERVAL_VALUE = 1e9 # this is 1 second
+INTERVAL_VALUE = 1e9  # this is 1 second
 
 # This is the BPF program
 # We are basically keeping track of start and end times
@@ -25,10 +25,11 @@ INTERVAL_VALUE = 1e9 # this is 1 second
 # plus random Google searching because I'm a C idiot
 bpf_text = """
 #include <uapi/linux/ptrace.h>
+#include <linux/sched.h>
 
 struct stats_key_t {
     u64 interval;
-    u64 pid_tgid;
+    u32 pid_tgid;
     u64 ip;
 };
 
@@ -38,7 +39,7 @@ struct stats_t {
 };
 struct event_t {
     u64 interval;
-    u64 pid_tgid;
+    u32 pid_tgid;
     u64 ip;
     u64 time;
     u64 freq;
@@ -47,16 +48,17 @@ struct func_t {
     u64 ts;
     u64 ip;
 };
-BPF_HASH(ip_map, u64, struct func_t);
+BPF_HASH(ip_map, u32, struct func_t);
 BPF_HASH(stats_map, struct stats_key_t, struct stats_t);
 BPF_RINGBUF_OUTPUT(events, 1 << 8);
 
 int start_timing(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
 
-    // This should be the pid of the task group
-    // I think this is what subprocess gives back
-    u32 pid = pid_tgid;
+    // This is the pid on the host.
+    // https://mozillazg.com/2022/05/ebpf-libbpfgo-get-process-info-en.html
+    u32 host_pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    u32 pid_tgid = task->real_parent->tgid;
 
     FILTER
 
@@ -69,8 +71,10 @@ int start_timing(struct pt_regs *ctx) {
 
 int stop_timing(struct pt_regs *ctx) {
     u64 *tsp, delta;
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u32 pid = pid_tgid;
+
+    u32 host_pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    u32 pid_tgid = task->real_parent->tgid;
 
     FILTER
 
@@ -113,22 +117,11 @@ int stop_timing(struct pt_regs *ctx) {
 
 
 def write_file(path, content):
+    """
+    Write content to file.
+    """
     with open(path, "w") as fd:
         fd.write(content)
-
-
-def get_matches(pattern):
-    """
-    I used this for prototyping and getting up to the max of 1K functions.
-    """
-    bpf_text = bpf_text.replace("INTERVAL_VALUE",INTERVAL_VALUE)
-    program = BPF(text=bpf_text)
-    program.attach_kprobe(event_re=pattern, fn_name="start_timing")
-    program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
-
-    # This tells us the number of kprobes we match
-    matched = program.num_open_kprobes()
-    print(matched)
 
 
 def get_parser():
@@ -168,8 +161,9 @@ def add_filter(pid):
     and usually the first is the tgid. We can use a function
     to derive it.
     """
-    return bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }") \
-                   .replace("INTERVAL_VALUE",str(int(INTERVAL_VALUE)))
+    return bpf_text.replace(
+        "FILTER", f"if (pid_tgid != {pid})" + "{ return 0; }"
+    ).replace("INTERVAL_VALUE", str(int(INTERVAL_VALUE)))
 
 
 def main():
@@ -184,8 +178,6 @@ def main():
     # If we don't have a command or pid, no go
     if not command:
         sys.exit("We need a command to follow the script, bro-shizzle.")
-    # if args.index is None:
-    #    sys.exit("Please provide an index for functions to choose.")
 
     # Prepare the wrapper template for our program
     wrapper = wrapper_template % " ".join(command)
@@ -223,12 +215,10 @@ def main():
     print(f"Timing {number_functions} functions.")
 
     # Wait for lammps to finish running
-    
-
     print()
-    #print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))
 
     last_updated = datetime.now()
+
     class Stats(ctypes.Structure):
         _fields_ = [
             ("interval", ctypes.c_uint64),
@@ -241,7 +231,7 @@ def main():
     def print_event(cpu, data, size):
         global last_updated
         last_updated = datetime.now()
-        stats = ctypes.cast(data, ctypes.POINTER(Stats)).contents            
+        stats = ctypes.cast(data, ctypes.POINTER(Stats)).contents
         obj = {
             "pid": ctypes.c_uint32(stats.pid_tgid).value,
             "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
@@ -260,9 +250,10 @@ def main():
             "cat": cat,
             "ph": "C",
             "ts": stats.interval,
-            "args": {"time": stats.time,"freq": stats.freq},
+            "args": {"time": stats.time, "freq": stats.freq},
         }
         logging.info(json.dumps(obj))
+
     try:
         os.remove("targeted_time.pfw")
     except OSError:
@@ -278,6 +269,7 @@ def main():
     program["events"].open_ring_buffer(print_event)
     timeout_interval_secs = 30
     interval = timedelta(seconds=int(timeout_interval_secs))
+
     def exit_function():
         p.wait()
 
@@ -293,6 +285,7 @@ def main():
             err = err.decode("utf-8")
             print(err)
             print("Run was not successful.")
+
     while True:
         try:
             program.ring_buffer_consume()
@@ -304,10 +297,6 @@ def main():
         except KeyboardInterrupt:
             exit_function()
             exit()
-
-    # This only works for one function
-    # program.detach_kprobe(event_re=pattern, fn_name="start_timing")
-    # program.detach_kretprobe(event_re=pattern, fn_name="stop_timing")
 
 
 # These are our targeted functions, 15 groups

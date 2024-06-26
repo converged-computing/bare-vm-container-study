@@ -22,7 +22,7 @@ Then make a directory where we will put files for each set of N linux probes. We
 ```bash
 mkdir kprobes
 cd kprobes
-sudo -E bpftrace -l | grep "kprobe:" | split --lines=800 - kprobes.
+sudo -E bpftrace -l | grep "kprobe:" | split --lines=600 - kprobes.
 cd ../
 ```
 
@@ -56,14 +56,18 @@ mkdir -p applications
 
 ### Lammps
 
+```bash
+singularity pull docker://ghcr.io/converged-computing/metric-lammps:cpu
+```
+
 ```console
 date > start-time.txt
 
 for filename in $(ls kprobes)
   do
   echo $filename
-  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/lammps-bare-metal.txt /usr/local/bin/mpirun --allow-run-as-root --host container-testing:56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 500
-  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/lammps-singularity.txt /usr/local/bin/mpirun --allow-run-as-root --host container-testing:56 singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 500
+  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/lammps-bare-metal.txt /usr/local/bin/mpirun --allow-run-as-root --host container-testing:56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000
+  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/lammps-singularity.txt /usr/local/bin/mpirun --allow-run-as-root --host container-testing:56 singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000
 
 done
 
@@ -116,4 +120,21 @@ spack env activate .
 cd -
 ```
 
+Generate the kprobes files again, then:
+
+
+```console
+date > start-time.txt
+app=amg
+
+for filename in $(ls kprobes)
+  do
+  echo $filename
+  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/$app-bare-metal.txt /opt/view/bin/mpirun --allow-run-as-root --host container-testing:56 /opt/view/bin/amg -P 2 4 7 -n 64 128 128
+
+done
+
+# Print the time when you finish
+date
+```
 
