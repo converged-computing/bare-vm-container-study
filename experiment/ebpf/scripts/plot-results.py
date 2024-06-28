@@ -25,7 +25,7 @@ def get_parser():
     parser.add_argument(
         "--results",
         help="directory with raw results data",
-        default=os.path.join(here, "results", "test-1"),
+        default=os.path.join(here, "results", "lammps"),
     )
     parser.add_argument(
         "--out",
@@ -44,12 +44,12 @@ def recursive_find(base, pattern="*.*"):
             yield os.path.join(root, filename)
 
 
-def find_inputs(input_dir):
+def find_inputs(input_dir, pattern="*.out"):
     """
     Find inputs (results files)
     """
     files = []
-    for filename in recursive_find(input_dir, pattern="*.out"):
+    for filename in recursive_find(input_dir, pattern=pattern):
         # We only have data for small
         files.append(filename)
     return files
@@ -69,13 +69,17 @@ def main():
         os.makedirs(outdir)
 
     # Find input files (skip anything with test)
-    files = find_inputs(indir)
-    if not files:
+    lammps_files = find_inputs(indir)
+    if not lammps_files:
+        raise ValueError(f"There are no lammps input files in {indir}")
+
+    timing_files = find_inputs(indir, "*.pfw")
+    if not timing_files:
         raise ValueError(f"There are no input files in {indir}")
 
     # This does the actual parsing of data into a formatted variant
     # Has keys results, iters, and columns
-    df, lammps = parse_data(files)
+    df, lammps = parse_data(lammps_files, timing_files)
 
     # Show means grouped by experiment to sanity check plots
     df.to_csv(os.path.join(outdir, "testing-times.csv"))
@@ -251,24 +255,10 @@ def plot_ebpf(df, outdir):
         plt.close()
 
 
-def parse_data(files):
+def parse_data(lammps_files, timing_files):
     """
     Given a listing of files, parse into results data frame
     """
-    # Parse into data frame
-    df = pandas.DataFrame(
-        columns=[
-            "ranks",
-            "experiment",
-            "iteration",
-            "time_seconds",
-            "nodes",
-            "percent_cpu_utilization",
-            "function",
-            "count",
-            "time_nsecs",
-        ]
-    )
     idx = 0
 
     # And only to compare lammps times
@@ -282,19 +272,16 @@ def parse_data(files):
             "percent_cpu_utilization",
         ]
     )
-    idxl = 0
 
-    total = len(files)
-    for i, filename in enumerate(files):
+    total = len(lammps_files)
+    for i, filename in enumerate(lammps_files):
         print(f"Parsing {i} of {total}", end="\r")
         parsed = os.path.relpath(filename, here)
         pieces = parsed.split(os.sep)
         experiment = pieces[-2]
-        filebase = pieces[-1]
-        _, iteration, _ = filebase.replace(".out", "").split("-")
+        filebase = pieces[-1].replace("lammps.", "")
+        _, _, size, iteration = filebase.replace(".out", "").split("-")
 
-        # Save CPU line
-        # This is a list, each a json result, 20x
         item = utils.read_file(filename)
 
         # I think my session was killed
@@ -310,7 +297,7 @@ def parse_data(files):
         ranks = result["ranks"]
 
         # Save all lammps times
-        lammps.loc[idxl, :] = [
+        lammps.loc[idx, :] = [
             int(ranks),
             experiment,
             int(iteration),
@@ -318,20 +305,40 @@ def parse_data(files):
             1,
             percent_cpu_usage,
         ]
-        idxl += 1
+        idx += 1
 
-        # These just have lammps times
-        if "no-ebpf" in filename:
-            continue
+    # Parse timing results into data frame
+    df = pandas.DataFrame(
+        columns=[
+            "ranks",
+            "experiment",
+            "iteration",
+            "time_seconds",
+            "nodes",
+            "percent_cpu_utilization",
+            "function",
+            "count",
+            "time_nsecs",
+        ]
+    )
+    idx = 0
 
-        # Json result is here
-        ebpf = json.loads(
-            item.split("=== RESULTS START", 1)[-1].split("=== RESULTS END", 1)[0]
-        )
+    total = len(timing_files)
+    for i, filename in enumerate(timing_files):
+        print(f"Parsing {i} of {total}", end="\r")
+        parsed = os.path.relpath(filename, here)
+        pieces = parsed.split(os.sep)
+        experiment = pieces[-2]
+        filebase = pieces[-1].replace("lammps.", "")
+        _, _, size, iteration = filebase.replace(".out", "").split("-")
 
-        for func in ebpf:
+        # Not sure why there is an extra "[
+        item = utils.read_file(filename).replace("[", "", 1)
+        lines = [x for x in item.split("\n") if x]
+        for line in lines:
+            line = json.loads(line)
             df.loc[idx, :] = [
-                int(ranks),
+                int(size),
                 experiment,
                 iteration,
                 seconds,

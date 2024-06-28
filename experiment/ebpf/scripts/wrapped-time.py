@@ -26,6 +26,7 @@ bpf_text = """
 struct stats_key_t {
     u64 interval;
     u32 pid_tgid;
+    u32 host_pid;
     u64 ip;
 };
 
@@ -36,17 +37,19 @@ struct stats_t {
 struct event_t {
     u64 interval;
     u32 pid_tgid;
+    u32 host_pid;
     u64 ip;
     u64 time;
     u64 freq;
 };
+
 struct func_t {
     u64 ts;
     u64 ip;
 };
 BPF_HASH(ip_map, u32, struct func_t);
 BPF_HASH(stats_map, struct stats_key_t, struct stats_t);
-BPF_RINGBUF_OUTPUT(events, 1 << 8);
+BPF_RINGBUF_OUTPUT(events, 2 << 16);
 
 int start_timing(struct pt_regs *ctx) {
 
@@ -61,7 +64,7 @@ int start_timing(struct pt_regs *ctx) {
     struct func_t func = {};
     func.ip =  PT_REGS_IP(ctx);
     func.ts = bpf_ktime_get_ns();
-    ip_map.update(&pid_tgid, &func);
+    ip_map.update(&host_pid, &func);
     return 0;
 }
 
@@ -74,7 +77,7 @@ int stop_timing(struct pt_regs *ctx) {
 
     FILTER
 
-    struct func_t *func = ip_map.lookup(&pid_tgid);
+    struct func_t *func = ip_map.lookup(&host_pid);
     
     // This means we missed the start
     if (func == 0) {
@@ -85,6 +88,7 @@ int stop_timing(struct pt_regs *ctx) {
     skey.interval = func->ts / INTERVAL_VALUE;
     skey.pid_tgid = pid_tgid;
     skey.ip = func->ip;
+    skey.host_pid = host_pid;
 
     struct stats_t zero = {};
     struct stats_t* stats = stats_map.lookup_or_init(&skey, &zero); 
@@ -99,6 +103,7 @@ int stop_timing(struct pt_regs *ctx) {
             struct event_t event = {};
             event.interval = skey.interval;
             event.pid_tgid = skey.pid_tgid;
+            event.host_pid = skey.host_pid;
             event.ip = skey.ip;
             event.time = stats->time;
             event.freq = stats->freq;
@@ -106,7 +111,7 @@ int stop_timing(struct pt_regs *ctx) {
             stats_map.delete(&skey);
         } 
     }
-    ip_map.delete(&pid_tgid);
+    ip_map.delete(&host_pid);
     return 0;
 }
 """

@@ -92,6 +92,7 @@ cd ../
 And then to run lammps across sizes:
 
 ```
+# Started June 26 11:53
 results=./results/lammps/bare-metal
 sresults=./results/lammps/singularity
 mkdir -p ${results} ${sresults}
@@ -109,6 +110,7 @@ for iter in $(seq 1 32); do
       done
    done
 done
+
 ```
 
 #### AMG2023
