@@ -70,7 +70,6 @@ for filename in $(ls kprobes)
   echo $filename
   time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/lammps-bare-metal.txt /usr/local/bin/mpirun --allow-run-as-root --host container-testing:56 lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000
   time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out applications/lammps-singularity.txt /usr/local/bin/mpirun --allow-run-as-root --host container-testing:56 singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000
-
 done
 
 # Print the time when you finish
@@ -93,30 +92,29 @@ And then to run lammps across sizes. Note that we aren't going up to 96, because
 
 ```
 # Total run time (lammps and ebpf)
-# 22: 43 seconds
-# 44: 36 seconds
-# 88: 35 seconds
 # I estimate this whole experiment to take 11.5 hours
 # Started June 29 10:45
+# 12: 61 seconds total, 25 lammps 
+# 24: 62 seconds seconds, lammps. 16 lammps
+# 48: seconds, lammps 11 seconds
 cd common/
 results=../results/lammps/bare-metal
 sresults=../results/lammps/singularity
 mkdir -p ${results} ${sresults}
 for iter in $(seq 1 32); do
   for filename in $(ls ../kprobes); do
-      for proc in 22 44 88; do
+      for proc in 12 24 48; do
        prefix="${results}/group-${filename}-size-${proc}-iter-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ../wrapped-time-ring-buffers.py --file ../kprobes/$filename --outfile ${prefix}.pfw /opt/amazon/openmpi/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
        fi
        prefix="${sresults}/${filename}-size-${proc}-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_libfabric.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ../wrapped-time-ring-buffers.py --file ../kprobes/$filename --outfile ${prefix}.pfw /opt/amazon/openmpi/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_libfabric.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
       fi
       done
    done
 done
-
 ```
 
 #### AMG2023
