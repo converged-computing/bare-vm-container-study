@@ -39,7 +39,6 @@ for filename in $(ls kprobes)
 done
 # Print the time when you finish
 date
-
 ```
 
 In the above, we write all the kprobes to temporary files, and remove them as we finish and append output to our matches file (`--out`) that defaults to `kprobes-present.txt` in the present working directory. If you want to cleanup as you go, then remove the temporary files after you use them. Otherwise, move them somewhere else. This exercise runs 69 files with 800 kprobes each.
@@ -57,13 +56,14 @@ mkdir -p applications
 ### Lammps
 
 ```bash
-singularity pull docker://ghcr.io/converged-computing/metric-lammps:cpu
+singularity pull docker://ghcr.io/converged-computing/metric-lammps-cpu:libfabric
+oras pull ghcr.io/converged-computing/metric-lammps-cpu:libfabric-data
 ```
 
 #### Kprobes for LAMMPS
 
 ```console
-date > start-time.txt
+cd common
 
 for filename in $(ls kprobes)
   do
@@ -89,23 +89,29 @@ cat ../applications/lammps-bare-metal.txt ../applications/lammps-singularity.txt
 cd ../
 ```
 
-And then to run lammps across sizes:
+And then to run lammps across sizes. Note that we aren't going up to 96, because I only saw 95% cpu utilization.
 
 ```
-# Started June 26 11:53
-results=./results/lammps/bare-metal
-sresults=./results/lammps/singularity
+# Total run time (lammps and ebpf)
+# 22: 43 seconds
+# 44: 36 seconds
+# 88: 35 seconds
+# I estimate this whole experiment to take 11.5 hours
+# Started June 29 10:45
+cd common/
+results=../results/lammps/bare-metal
+sresults=../results/lammps/singularity
 mkdir -p ${results} ${sresults}
 for iter in $(seq 1 32); do
-  for filename in $(ls kprobes); do
-      for proc in 56 28 14; do
-       prefix="${results}/${filename}-size-${proc}-${iter}"
+  for filename in $(ls ../kprobes); do
+      for proc in 22 44 88; do
+       prefix="${results}/group-${filename}-size-${proc}-iter-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 wrapped-time.py --file kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
        fi
        prefix="${sresults}/${filename}-size-${proc}-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 wrapped-time.py --file kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_latest.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_libfabric.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
       fi
       done
    done
