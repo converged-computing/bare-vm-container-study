@@ -4,14 +4,19 @@
 # them!
 
 import argparse
+import ctypes
+import json
+import logging
 import os
-import tempfile
 import subprocess
 import sys
-import json
+import tempfile
 import time
+from datetime import datetime, timedelta
 
 from bcc import BPF
+
+INTERVAL_VALUE = 1e9  # this is 1 second
 
 # This is the BPF program
 # We are basically keeping track of start and end times
@@ -20,84 +25,103 @@ from bcc import BPF
 # plus random Google searching because I'm a C idiot
 bpf_text = """
 #include <uapi/linux/ptrace.h>
+#include <linux/sched.h>
+
+struct stats_key_t {
+    u64 interval;
+    u32 pid_tgid;
+    u64 ip;
+};
 
 struct stats_t {
     u64 time;
     u64 freq;
 };
-BPF_HASH(start, u32);
-BPF_HASH(ipaddr, u32);
-BPF_HASH(stats, u64, struct stats_t);
+struct event_t {
+    u64 interval;
+    u32 pid_tgid;
+    u64 ip;
+    u64 time;
+    u64 freq;
+};
+struct func_t {
+    u64 ts;
+    u64 ip;
+};
+BPF_HASH(ip_map, u32, struct func_t);
+BPF_HASH(stats_map, struct stats_key_t, struct stats_t);
+BPF_RINGBUF_OUTPUT(events, 1 << 8);
 
 int start_timing(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
 
-    // This should be the pid of the task group
-    // I think this is what subprocess gives back
-    u32 pid = pid_tgid;
+    // This is the pid on the host.
+    // https://mozillazg.com/2022/05/ebpf-libbpfgo-get-process-info-en.html
+    u32 host_pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    u32 pid_tgid = task->real_parent->tgid;
 
     FILTER
 
-    u64 ts = bpf_ktime_get_ns();
-    u64 ip = PT_REGS_IP(ctx);
-    ipaddr.update(&pid, &ip);
-    start.update(&pid, &ts);
-
+    struct func_t func = {};
+    func.ip =  PT_REGS_IP(ctx);
+    func.ts = bpf_ktime_get_ns();
+    ip_map.update(&pid_tgid, &func);
     return 0;
 }
 
 int stop_timing(struct pt_regs *ctx) {
     u64 *tsp, delta;
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u32 pid = pid_tgid;
 
-    // calculate delta time
-    tsp = start.lookup(&pid);
+    u32 host_pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    u32 pid_tgid = task->real_parent->tgid;
 
+    FILTER
+
+    struct func_t *func = ip_map.lookup(&pid_tgid);
+    
     // This means we missed the start
-    if (tsp == 0) {
+    if (func == 0) {
         return 0;
     }
-    delta = bpf_ktime_get_ns() - *tsp;
-    start.delete(&pid);
 
-    u64 ip, *ipp = ipaddr.lookup(&pid);
-    if (ipp) {
-        ip = *ipp;
-        struct stats_t *stat = stats.lookup(&ip);
-        if (stat) {
-            stat->time += delta;
-            stat->freq++;
-        } else {
-            struct stats_t s = {};
-            s.time = delta;
-            s.freq = 1;
-            stats.update(&ip, &s);
-        }
-        ipaddr.delete(&pid);
+    struct stats_key_t skey = {};
+    skey.interval = func->ts / INTERVAL_VALUE;
+    skey.pid_tgid = pid_tgid;
+    skey.ip = func->ip;
+
+    struct stats_t zero = {};
+    struct stats_t* stats = stats_map.lookup_or_init(&skey, &zero); 
+    stats->time += bpf_ktime_get_ns() - func->ts;
+    stats->freq++;
+
+    if (skey.interval > 0) {
+        // look for previous interval if present emit
+        skey.interval--;
+        stats = stats_map.lookup(&skey);
+        if (stats != 0) {
+            struct event_t event = {};
+            event.interval = skey.interval;
+            event.pid_tgid = skey.pid_tgid;
+            event.ip = skey.ip;
+            event.time = stats->time;
+            event.freq = stats->freq;
+            events.ringbuf_output(&event, sizeof(struct event_t), 0);
+            stats_map.delete(&skey);
+        } 
     }
-
+    ip_map.delete(&pid_tgid);
     return 0;
 }
 """
 
 
 def write_file(path, content):
+    """
+    Write content to file.
+    """
     with open(path, "w") as fd:
         fd.write(content)
-
-
-def get_matches(pattern):
-    """
-    I used this for prototyping and getting up to the max of 1K functions.
-    """
-    program = BPF(text=bpf_text)
-    program.attach_kprobe(event_re=pattern, fn_name="start_timing")
-    program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
-
-    # This tells us the number of kprobes we match
-    matched = program.num_open_kprobes()
-    print(matched)
 
 
 def get_parser():
@@ -137,7 +161,9 @@ def add_filter(pid):
     and usually the first is the tgid. We can use a function
     to derive it.
     """
-    return bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }")
+    return bpf_text.replace(
+        "FILTER", f"if (pid_tgid != {pid})" + "{ return 0; }"
+    ).replace("INTERVAL_VALUE", str(int(INTERVAL_VALUE)))
 
 
 def main():
@@ -152,8 +178,6 @@ def main():
     # If we don't have a command or pid, no go
     if not command:
         sys.exit("We need a command to follow the script, bro-shizzle.")
-    # if args.index is None:
-    #    sys.exit("Please provide an index for functions to choose.")
 
     # Prepare the wrapper template for our program
     wrapper = wrapper_template % " ".join(command)
@@ -191,48 +215,88 @@ def main():
     print(f"Timing {number_functions} functions.")
 
     # Wait for lammps to finish running
-    p.wait()
-
-    # Print output - for the experiments we will save it to file
-    # Better would be to open an sqlite database, and save to a table
-    # based on the program, pid, and iteration.
-    out, err = p.communicate()
-    if p.returncode == 0:
-        out = out.decode("utf-8")
-        print(out)
-        print("Run was successful.")
-    else:
-        err = err.decode("utf-8")
-        print(err)
-        print("Run was not successful.")
-
     print()
-    print("%-36s %8s %16s" % ("FUNC", "COUNT", "TIME (nsecs)"))
 
-    # Get a table from the program to print to the terminal
-    stats = program.get_table("stats")
-    results = []
-    for k, v in stats.items():
-        results.append(
-            {
-                "func": BPF.sym(k.value, -1).decode("utf-8"),
-                "count": v.freq,
-                "time_nsecs": v.time,
-            }
-        )
-        print("%-36s %8s %16s" % (BPF.sym(k.value, -1).decode("utf-8"), v.freq, v.time))
-    print("\n=== RESULTS START")
-    print(json.dumps(results))
-    print("=== RESULTS END")
-    stats.clear()
+    last_updated = datetime.now()
 
-    # In case someone deleted it...
-    if os.path.exists(tmp_file):
-        os.remove(tmp_file)
+    class Stats(ctypes.Structure):
+        _fields_ = [
+            ("interval", ctypes.c_uint64),
+            ("pid_tgid", ctypes.c_uint64),
+            ("ip", ctypes.c_uint64),
+            ("time", ctypes.c_uint64),
+            ("freq", ctypes.c_uint64),
+        ]
 
-    # This only works for one function
-    # program.detach_kprobe(event_re=pattern, fn_name="start_timing")
-    # program.detach_kretprobe(event_re=pattern, fn_name="stop_timing")
+    def print_event(cpu, data, size):
+        global last_updated
+        last_updated = datetime.now()
+        stats = ctypes.cast(data, ctypes.POINTER(Stats)).contents
+        obj = {
+            "pid": ctypes.c_uint32(stats.pid_tgid).value,
+            "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
+        }
+        fname = program.sym(stats.ip, obj["pid"], show_module=True).decode()
+        if "unknown" in fname:
+            fname = program.ksym(stats.ip, show_module=True).decode()
+        if "unknown" in fname:
+            cat = "unknown"
+        else:
+            cat = fname.split(" ")[1]
+        obj = {
+            "pid": ctypes.c_uint32(stats.pid_tgid).value,
+            "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
+            "name": fname,
+            "cat": cat,
+            "ph": "C",
+            "ts": stats.interval,
+            "args": {"time": stats.time, "freq": stats.freq},
+        }
+        logging.info(json.dumps(obj))
+
+    try:
+        os.remove("targeted_time.pfw")
+    except OSError:
+        pass
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler("targeted_time.pfw", mode="a", encoding="utf-8"),
+        ],
+        format="%(message)s",
+    )
+    logging.info("[")
+    program["events"].open_ring_buffer(print_event)
+    timeout_interval_secs = 30
+    interval = timedelta(seconds=int(timeout_interval_secs))
+
+    def exit_function():
+        p.wait()
+
+        # Print output - for the experiments we will save it to file
+        # Better would be to open an sqlite database, and save to a table
+        # based on the program, pid, and iteration.
+        out, err = p.communicate()
+        if p.returncode == 0:
+            out = out.decode("utf-8")
+            print(out)
+            print("Run was successful.")
+        else:
+            err = err.decode("utf-8")
+            print(err)
+            print("Run was not successful.")
+
+    while True:
+        try:
+            program.ring_buffer_consume()
+            time.sleep(0.5)
+            if datetime.now() - last_updated > interval:
+                print(f"No events received for {timeout_interval_secs} secs. Exiting.")
+                exit_function()
+                exit()
+        except KeyboardInterrupt:
+            exit_function()
+            exit()
 
 
 # These are our targeted functions, 15 groups

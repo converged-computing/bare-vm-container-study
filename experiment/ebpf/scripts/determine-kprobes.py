@@ -4,9 +4,9 @@
 
 import argparse
 import os
-import tempfile
 import subprocess
 import sys
+import tempfile
 import time
 
 from bcc import BPF
@@ -28,6 +28,7 @@ exec %s
 # This is based on this example: https://github.com/iovisor/bcc/blob/master/tools/funclatency.py
 bpf_text = """
 #include <uapi/linux/ptrace.h>
+#include <linux/sched.h>
 
 struct key_t {
     u64 ip;
@@ -36,6 +37,13 @@ struct key_t {
 BPF_HASH(counts, struct key_t, u64, 256);
 
 int do_count(struct pt_regs *ctx) {
+
+    u32 host_pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    u32 pid_tgid = task->real_parent->tgid;
+
+    FILTER
+
     struct key_t key = {};
     key.ip = PT_REGS_IP(ctx);
     counts.atomic_increment(key);
@@ -88,7 +96,7 @@ def add_filter(pid):
     and usually the first is the tgid. We can use a function
     to derive it.
     """
-    return bpf_text.replace("FILTER", f"if (pid != {pid})" + "{ return 0; }")
+    return bpf_text.replace("FILTER", f"if (pid_tgid != {pid})" + "{ return 0; }")
 
 
 def main():
