@@ -69,18 +69,20 @@ def main():
         os.makedirs(outdir)
 
     # Find input files (skip anything with test)
-    lammps_files = find_inputs(indir)
-    if not lammps_files:
+    files = find_inputs(indir)
+    if not files:
         raise ValueError(f"There are no lammps input files in {indir}")
 
-    timing_files = find_inputs(indir, "*.pfw")
-    if not timing_files:
-        raise ValueError(f"There are no input files in {indir}")
+    # Find the perfetto files
+    perfetto_files = find_inputs(indir, pattern="*.pfw")
 
     # This does the actual parsing of data into a formatted variant
     # Has keys results, iters, and columns
-    df, lammps = parse_data(lammps_files, timing_files)
+    df, lammps = parse_data(files, perfetto_files)
 
+    import IPython
+    IPython.embed()
+    sys.exit()
     # Show means grouped by experiment to sanity check plots
     df.to_csv(os.path.join(outdir, "testing-times.csv"))
     lammps.to_csv(os.path.join(outdir, "lammps-times.csv"))
@@ -162,7 +164,7 @@ def plot_results(df, lammps, outdir):
     norm_dist_out = os.path.join(outdir, "check-normal")
     if not os.path.exists(norm_dist_out):
         os.makedirs(norm_dist_out)
-
+    
     for function in df.function.unique():
         subset = df[df.function == function]
         for size in df.ranks.unique():
@@ -255,10 +257,25 @@ def plot_ebpf(df, outdir):
         plt.close()
 
 
-def parse_data(lammps_files, timing_files):
+def parse_data(files, perfetto_files):
     """
     Given a listing of files, parse into results data frame
     """
+    # Parse into data frame
+    df = pandas.DataFrame(
+        columns=[
+            "ranks",
+            "experiment",
+            "group",
+            "iteration",
+            "nodes",
+            "function",
+            "category",
+            "count",
+            "time_nsecs",
+            "interval",
+        ]
+    )
     idx = 0
 
     # And only to compare lammps times
@@ -266,21 +283,29 @@ def parse_data(lammps_files, timing_files):
         columns=[
             "ranks",
             "experiment",
+            "group",
             "iteration",
             "time_seconds",
             "nodes",
             "percent_cpu_utilization",
         ]
     )
+    idxl = 0
 
-    total = len(lammps_files)
-    for i, filename in enumerate(lammps_files):
+    total = len(files)
+    for i, filename in enumerate(files):
+
         print(f"Parsing {i} of {total}", end="\r")
         parsed = os.path.relpath(filename, here)
         pieces = parsed.split(os.sep)
         experiment = pieces[-2]
         filebase = pieces[-1].replace("lammps.", "")
-        _, _, size, iteration = filebase.replace(".out", "").split("-")
+
+        # "group", $number, "size", $size, $iteration
+        if "iter" in filebase:
+            _, group, _, size, _, iteration = filebase.replace(".out", "").split("-")
+        else:
+            _, group, _, size, iteration = filebase.replace(".out", "").split("-")
 
         item = utils.read_file(filename)
 
@@ -297,64 +322,189 @@ def parse_data(lammps_files, timing_files):
         ranks = result["ranks"]
 
         # Save all lammps times
-        lammps.loc[idx, :] = [
+        lammps.loc[idxl, :] = [
             int(ranks),
             experiment,
+            group,
             int(iteration),
             seconds,
             1,
             percent_cpu_usage,
         ]
-        idx += 1
+        idxl += 1
+        continue
 
-    # Parse timing results into data frame
-    df = pandas.DataFrame(
-        columns=[
-            "ranks",
-            "experiment",
-            "iteration",
-            "time_seconds",
-            "nodes",
-            "percent_cpu_utilization",
-            "function",
-            "count",
-            "time_nsecs",
-        ]
-    )
-    idx = 0
+    import IPython
+    IPython.embed()
+           
+        # Json result is here
+   #     ebpf = json.loads(
+    #        item.split("=== RESULTS START", 1)[-1].split("=== RESULTS END", 1)[0]
+   #     )
 
-    total = len(timing_files)
-    for i, filename in enumerate(timing_files):
+    total = len(perfetto_files)
+    for i, filename in enumerate(perfetto_files):
+
         print(f"Parsing {i} of {total}", end="\r")
         parsed = os.path.relpath(filename, here)
         pieces = parsed.split(os.sep)
         experiment = pieces[-2]
         filebase = pieces[-1].replace("lammps.", "")
-        _, _, size, iteration = filebase.replace(".out", "").split("-")
 
-        # Not sure why there is an extra "[
-        item = utils.read_file(filename).replace("[", "", 1)
-        lines = [x for x in item.split("\n") if x]
-        for line in lines:
-            line = json.loads(line)
+        # "group", $number, "size", $size, $iteration
+        if "iter" in filebase:
+            _, group, _, size, _, iteration = filebase.replace(".pfw", "").split("-")
+        else:
+            _, group, _, size, iteration = filebase.replace(".pfw", "").split("-")
+
+        group = int(group)
+        size = int(size)
+        if group != 4 or size != 64:
+            continue
+
+        item = utils.read_file(filename)
+        item = item.replace('[', '', 1)
+        for line in item.split('\n'):
+            if not line:
+                continue
+            func = json.loads(line)
             df.loc[idx, :] = [
-                int(size),
+                int(ranks),
                 experiment,
+                group,
                 iteration,
-                seconds,
                 1,
-                percent_cpu_usage,
-                func["func"],
-                func["count"],
-                func["time_nsecs"],
+                func["name"],
+                func['cat'],
+                func['args']["freq"],
+                func["args"]['time'],
+                func['ts']
             ]
             idx += 1
 
+    import IPython
+    IPython.embed()
+    sys.exit()
     df.ranks = df.ranks.astype(int)
     df.nodes = df.nodes.astype(int)
     df.time_nsecs = df.time_nsecs.astype(int)
     df["count"] = df["count"].astype(int)
     return df, lammps
+
+
+# input here should be lammps
+def test_outliers(df, lammps):
+    diffs = pandas.DataFrame(columns=["function", "size", "pvalue", "statistic"])
+    idx = 0
+
+    # Filter out singularity
+    sing = lammps[lammps.experiment == 'singularity']
+
+    # Identify outliers including bare metal times
+    thresholds = {}
+    for size in sing.ranks.unique():
+        mean_time = lammps[lammps.ranks==int(size)].groupby(['ranks']).time_seconds.mean().values[0]
+        std_time = lammps[lammps.ranks==int(size)].groupby(['ranks']).time_seconds.std().values[0]
+        
+        # Say an outlier is 3x the std, this is the 3 sigma rule
+        thresh = mean_time + (3* std_time)       
+        thresholds[int(size)] = thresh
+        
+    values = []
+    for row in sing.iterrows():
+        thresh = thresholds[row[1].ranks]
+        if row[1].time_seconds >= thresh:
+            values.append(True)
+        else:
+            values.append(False)
+
+    # 31 outliers out of 271 
+    # len([x for x in values if x==True])
+    sing['is_outlier'] = values
+
+    # Let's just consider singularity cases
+    ss = df[df.experiment == 'singularity']
+
+    # Default all are not outliers
+    df['is_outlier'] = False
+
+    # Set outlier on the main data frame depending on iteration and ranks
+    for row in sing.iterrows():
+        if not row[1].is_outlier:
+            continue
+        index = ss[(ss.ranks == row[1].ranks) & (ss.group == row[1].group) & (ss.iteration == str(row[1].iteration))].index
+        ss.loc[index, "is_outlier"] = True
+
+    # Just look at mean of outliers and difference
+    outlier_df = pandas.DataFrame(columns=['function', 'size', 'outlier', 'no_outlier', 'difference'])
+    idx2 = 0
+
+    all_outliers = {}
+    for function in ss.function.unique():
+        subset = ss[ss.function == function]
+        for size in ss.ranks.unique():
+            sized = subset[subset.ranks == size]
+            if sized.shape[0] == 0:
+                continue
+
+            df_subset = df[df.function == function]
+            df_subset = df_subset[df_subset.ranks == size]
+            if df_subset.shape[0] == 0:
+                continue
+
+            # If we don't have any outliers
+            if len(sized.is_outlier.unique()) == 1 and sized.is_outlier.unique().tolist()[0] is False:
+                continue
+
+            # Every run for the group is an outlier
+            if len(sized.is_outlier.unique()) == 1 and sized.is_outlier.unique().tolist()[0] is True:
+                if size not in all_outliers:
+                    all_outliers[size] = set()
+                all_outliers[size].add(function)
+
+            # Do a t test! Two tailed means we can get a change in either direction
+            outlier = sized[sized.is_outlier == True].time_nsecs.tolist()
+            not_outlier = df_subset[df_subset.is_outlier == False].time_nsecs.tolist()
+
+            # Difference as a percentage of not outlier, across entire experiment (bare metal too)
+            difference = (numpy.mean(not_outlier) - numpy.mean(outlier)) / numpy.mean(not_outlier)
+            if difference == 0:
+                continue
+ 
+            outlier_df.loc[idx2, :] = [function, size, numpy.mean(outlier), numpy.mean(not_outlier), difference]
+            idx2 +=1
+
+            # For now require >1 for both (we need more samples here)
+            if len(outlier) <= 1 or len(not_outlier) <= 1:
+                continue
+
+            # plot_distribution(singularity, bare_metal, norm_dist_out)
+            res = stats.ttest_ind(outlier, not_outlier)
+            diffs.loc[idx, :] = [function, size, res.pvalue, res.statistic]
+            idx += 1
+
+    diffs = diffs.sort_values("pvalue")
+
+    
+    # Bonferonni correction
+    rejected, p_adjusted, _, alpha_corrected = multipletests(
+        diffs["pvalue"].tolist(), method="bonferroni"
+    )
+    diffs["pvalue"] = p_adjusted
+    diffs["rejected"] = rejected
+    sigs = diffs[diffs.rejected == True]
+
+    # TODO add means / std for each
+    diffs.to_csv(os.path.join(outdir, "two-sample-t.csv"))
+    sigs.to_csv(os.path.join(outdir, "two-sample-t-reject-null.csv"))
+    utils.write_json(
+        not_used_singularity,
+        os.path.join(outdir, "functions-not-used-singularity.json"),
+    )
+    utils.write_json(
+        not_used_bare_metal,
+        os.path.join(outdir, "functions-not-used-bare-metal.json"),
+    )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 
 from bcc import BPF
 
+here = os.path.dirname(os.path.abspath(__file__))
+
 INTERVAL_VALUE = 1e9  # this is 1 second
 
 # This is the BPF program
@@ -229,7 +231,7 @@ def main():
     print(f"👉️ SoPath: {args.so_path}")
 
     # Prepare the wrapper template for our program
-    wrapper = wrapper_template % (" ".join(command), args.so_path)
+    wrapper = wrapper_template % (args.so_path, " ".join(command))
     print(wrapper)
     tmp_file = get_tmpfile()
     write_file(tmp_file, wrapper)

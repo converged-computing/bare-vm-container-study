@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -145,11 +146,16 @@ def get_parser():
     return parser
 
 
+# These functions interfere with lammps running:
+skips = ["decay_load"]
+skips_regex = "(%s)" % "|".join(skips)
+
 wrapper_template = """#!/bin/bash
 
 echo "Program running has pid $$"
 
 # This is probably too big, be conservative
+# We will cut out any programs that take longer than 4.5 seconds for ebpf
 sleep 5
 
 # This ensures our command inherits the same parent id
@@ -174,9 +180,10 @@ def read_kprobes(args):
     kprobes = [
         x.replace("kprobe:", "", 1) for x in read_file(args.file).split("\n") if x
     ]
-    kprobes = [x for x in kprobes if not x.startswith("_")]
+    kprobes = [x for x in kprobes if not x.startswith("_") and not re.search(skips_regex, x)]
     if not kprobes:
         sys.exit("No kprobes found after filter.")
+    print(kprobes)
     print(f"Looking at {len(kprobes)} contenders...")
     return kprobes
 
@@ -232,8 +239,14 @@ def main():
 
     # patterns should be regular expression oriented
     pattern = "^(" + "|".join(kprobes) + ").*$"
-    program.attach_kprobe(event_re=pattern, fn_name="start_timing")
-    program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
+
+    # If you target a specific function that cannot attach, throws error.
+    try:
+        program.attach_kprobe(event_re=pattern, fn_name="start_timing")
+        program.attach_kretprobe(event_re=pattern, fn_name="stop_timing")
+    except Exception as e:
+        sys.exit(f'Cannot attach probe: {e}')
+        
 
     # This tells us the number of kprobes we match
     matched = program.num_open_kprobes()

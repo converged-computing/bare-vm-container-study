@@ -1,9 +1,16 @@
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG arch=amd64
+ARG cmake_arch=x86_64
+ENV arch=$arch
+ENV cmake_arch=$cmake_arch
+
 # Build command
 #  docker build -t ghcr.io/converged-computing/metric-stream:cpu .
 #  docker push ghcr.io/converged-computing/metric-stream:cpu
+
+# docker build --build-arg cmake_arch=aarch64 --build-arg arch=arm64 -t ghcr.io/converged-computing/metric-stream:hpc7g .
 
 # Utilities
 RUN apt-get update && \
@@ -156,7 +163,7 @@ RUN sudo apt-get -qq install -y --no-install-recommends \
 ENV LD_LIBRARY_PATH=/opt/miniconda/lib:$LD_LIBRARY_PATH
 
 ENV CMAKE=3.23.1
-RUN curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-x86_64.sh > cmake.sh && \
+RUN curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-${cmake_arch}.sh > cmake.sh && \
     sudo sh cmake.sh --prefix=/usr/local --skip-license
     
 RUN wget https://github.com/flux-framework/flux-sched/releases/download/v0.33.1/flux-sched-0.33.1.tar.gz && \
@@ -173,7 +180,6 @@ RUN apt-get update && \
         dnsutils telnet strace git g++ \
         unzip bzip2
 
-# install openmpi with cuda
 WORKDIR /opt
 RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.2.tar.gz && \
     tar -xzvf openmpi-4.1.2.tar.gz && \
@@ -181,6 +187,7 @@ RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.2.tar.g
     ./configure && \
     make && make install && ldconfig
 
+# This is building stream (very simple)
 WORKDIR /opt/stream
 COPY ./src .
 RUN apt-get install -y gfortran && \
@@ -190,7 +197,7 @@ EXPOSE 22
 
 # Finally, install oras for saving artifacts
 RUN export VERSION="1.1.0" && \
-    curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz" && \
+    curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_${arch}.tar.gz" && \
     mkdir -p oras-install/ && \
     tar -zxf oras_${VERSION}_*.tar.gz -C oras-install/ && \
     mv oras-install/oras /usr/local/bin/ && \

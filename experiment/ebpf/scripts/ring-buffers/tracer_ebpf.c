@@ -12,6 +12,6 @@ void tracer_ebpf_init(void) {
 }
 
 void tracer_ebpf_fini(void) {
-  printf("Desctructor Loaded\n");
+  printf("Destructor Loaded\n");
   tracer_remove_pid();
 }
