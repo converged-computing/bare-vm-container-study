@@ -10,6 +10,7 @@ ENV cmake_arch=$cmake_arch
 #  docker push ghcr.io/converged-computing/metric-gromacs 
 
 # docker build --build-arg cmake_arch=aarch64 --build-arg arch=arm64 -t ghcr.io/converged-computing/metric-gromacs:hpc7g .
+# docker push ghcr.io/converged-computing/metric-gromacs:hpc7g
 
 # Utilities
 RUN apt-get update && \

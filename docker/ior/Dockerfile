@@ -1,17 +1,12 @@
-FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
-
-# docker build -t ghcr.io/converged-computing/pytorch-resnet-experiment:cpu .
-# docker push ghcr.io/converged-computing/pytorch-resnet-experiment:cpu
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
 
 ARG arch=amd64
 ARG cmake_arch=x86_64
 ENV arch=$arch
 ENV cmake_arch=$cmake_arch
 
-# docker build --build-arg cmake_arch=aarch64 --build-arg arch=arm64 -t ghcr.io/converged-computing/pytorch-resnet-experiment:hpc7g .
-
-
-ENV DEBIAN_FRONTEND=noninteractive
+# docker build --build-arg cmake_arch=aarch64 --build-arg arch=arm64 -t ghcr.io/converged-computing/metric-ior:hpc7g .
 
 # Utilities
 RUN apt-get update && \
@@ -50,20 +45,16 @@ RUN apt-get update && \
         make \
         clang \
         clang-tidy \
-        python3-jsonschema \
-        python3-cffi \
-        python3-sphinx \
-        python3-six \
-        python3-ply \
         gcc \
         g++ && \
     rm -rf /var/lib/apt/lists/*
 
 # Python - instead of a system python we install anaconda
 # https://docs.conda.io/en/latest/miniconda.html#linux-installers
-RUN python3 -m pip install --upgrade --ignore-installed \
+RUN pip install --upgrade --ignore-installed \
         "markupsafe==2.0.0" \
-        coverage sphinx-rtd-theme pyyaml ply sphinxcontrib-spelling 
+        coverage cffi ply six pyyaml "jsonschema>=2.6,<4.0" \
+        sphinx sphinx-rtd-theme sphinxcontrib-spelling 
         
 RUN apt-get update && \
     apt-get -qq install -y --no-install-recommends \
@@ -185,7 +176,6 @@ RUN apt-get update && \
         dnsutils telnet strace git g++ \
         unzip bzip2
 
-# install openmpi with cuda
 WORKDIR /opt
 RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.2.tar.gz && \
     tar -xzvf openmpi-4.1.2.tar.gz && \
@@ -193,10 +183,39 @@ RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.2.tar.g
     ./configure && \
     make && make install && ldconfig
 
-RUN pip install tqdm && \
-    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-COPY main.py launch.sh ./
-CMD printenv
+RUN apt-get update && apt-get install -y sysstat
+
+# This is building stream (very simple)
+WORKDIR /opt
+
+RUN apt-get update && apt-get install -y \
+    libhdf5-serial-dev \
+    gfarm-client m4 libgfarm-dev libs3-dev \
+    libcurl4-gnutls-dev libxml2  libssl-dev \
+    libpmem-dev libcephfs-dev
+
+RUN git clone https://github.com/mar-file-system/aws4c /opt/aws4c && \
+    wget https://parallel-netcdf.github.io/Release/pnetcdf-1.12.3.tar.gz && \
+    tar xzvf pnetcdf-1.12.3.tar.gz && \
+    cd pnetcdf-1.12.3 && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install
+
+RUN wget https://github.com/hpc/ior/releases/download/4.0.0rc1/ior-4.0.0rc1.tar.gz && \
+    tar -xzvf ior-4.0.0rc1.tar.gz && \
+    rm ior-4.0.0rc1.tar.gz && \
+    mv ior-4.0.0rc1 ./ior
+
+# Note I did as many as I quickly could here - would be good to add aws
+WORKDIR /opt/ior
+RUN ./configure --prefix=/usr \
+      --with-ncmpi --with-pmdk  \
+      --with-cephfs --with-daos --with-gfarm  && \
+    make && \
+    make install
+
+EXPOSE 22
 
 # Finally, install oras for saving artifacts
 RUN export VERSION="1.1.0" && \

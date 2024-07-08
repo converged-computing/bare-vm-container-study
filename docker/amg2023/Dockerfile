@@ -71,6 +71,8 @@ WORKDIR /opt
 EXPOSE 22
 
 FROM ubuntu:22.04
+ARG arch=amd64
+ENV arch=$arch
 
 COPY --from=builder /opt/spack-environment /opt/spack-environment
 COPY --from=builder /opt/software /opt/software

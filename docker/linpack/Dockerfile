@@ -1,9 +1,16 @@
-FROM ubuntu:22.04 as builder
+FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
+
+ARG arch=amd64
+ARG cmake_arch=x86_64
+ENV arch=$arch
+ENV cmake_arch=$cmake_arch
 
 # Build command
 #  docker build -t ghcr.io/converged-computing/metric-linpack-cpu .
 #  docker push ghcr.io/converged-computing/metric-linpack-cpu
+
+# docker build --build-arg cmake_arch=aarch64 --build-arg arch=arm64 -t ghcr.io/converged-computing/metric-linpack:hpc7g .
 
 # Utilities
 RUN apt-get update && \
@@ -156,7 +163,7 @@ RUN sudo apt-get -qq install -y --no-install-recommends \
 ENV LD_LIBRARY_PATH=/opt/miniconda/lib:$LD_LIBRARY_PATH
 
 ENV CMAKE=3.23.1
-RUN curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-x86_64.sh > cmake.sh && \
+RUN curl -s -L https://github.com/Kitware/CMake/releases/download/v$CMAKE/cmake-$CMAKE-linux-${cmake_arch}.sh > cmake.sh && \
     sudo sh cmake.sh --prefix=/usr/local --skip-license
     
 RUN wget https://github.com/flux-framework/flux-sched/releases/download/v0.33.1/flux-sched-0.33.1.tar.gz && \
@@ -221,7 +228,7 @@ EXPOSE 22
 
 # Finally, install oras for saving artifacts
 RUN export VERSION="1.1.0" && \
-    curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz" && \
+    curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_${arch}.tar.gz" && \
     mkdir -p oras-install/ && \
     tar -zxf oras_${VERSION}_*.tar.gz -C oras-install/ && \
     mv oras-install/oras /usr/local/bin/ && \

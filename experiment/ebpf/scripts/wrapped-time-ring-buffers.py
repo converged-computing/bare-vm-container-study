@@ -26,8 +26,8 @@ bpf_text = """
 
 struct stats_key_t {
     u64 interval;
-    u32 pid_tgid;
     u32 host_pid;
+    u64 thread_pid;
     u64 ip;
 };
 
@@ -37,8 +37,8 @@ struct stats_t {
 };
 struct event_t {
     u64 interval;
-    u32 pid_tgid;
     u32 host_pid;
+    u64 thread_pid;
     u64 ip;
     u64 time;
     u64 freq;
@@ -48,14 +48,12 @@ struct func_t {
     u64 ts;
     u64 ip;
 };
-BPF_HASH(ip_map, u32, struct func_t);
+BPF_HASH(ip_map, u64, struct func_t);
 BPF_HASH(stats_map, struct stats_key_t, struct stats_t);
 BPF_RINGBUF_OUTPUT(events, 2 << 16);
 
 int start_timing(struct pt_regs *ctx) {
-
-    // This is the pid on the host.
-    // https://mozillazg.com/2022/05/ebpf-libbpfgo-get-process-info-en.html
+    u64 thread_pid = bpf_get_current_pid_tgid();
     u32 host_pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     u32 pid_tgid = task->real_parent->tgid;
@@ -65,20 +63,21 @@ int start_timing(struct pt_regs *ctx) {
     struct func_t func = {};
     func.ip =  PT_REGS_IP(ctx);
     func.ts = bpf_ktime_get_ns();
-    ip_map.update(&host_pid, &func);
+    ip_map.update(&thread_pid, &func);
     return 0;
 }
 
 int stop_timing(struct pt_regs *ctx) {
     u64 *tsp, delta;
 
+    u64 thread_pid = bpf_get_current_pid_tgid();
     u32 host_pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     u32 pid_tgid = task->real_parent->tgid;
 
     FILTER
 
-    struct func_t *func = ip_map.lookup(&host_pid);
+    struct func_t *func = ip_map.lookup(&thread_pid);
     
     // This means we missed the start
     if (func == 0) {
@@ -87,9 +86,9 @@ int stop_timing(struct pt_regs *ctx) {
 
     struct stats_key_t skey = {};
     skey.interval = func->ts / INTERVAL_VALUE;
-    skey.pid_tgid = pid_tgid;
     skey.ip = func->ip;
     skey.host_pid = host_pid;
+    skey.thread_pid = thread_pid;
 
     struct stats_t zero = {};
     struct stats_t* stats = stats_map.lookup_or_init(&skey, &zero); 
@@ -103,7 +102,7 @@ int stop_timing(struct pt_regs *ctx) {
         if (stats != 0) {
             struct event_t event = {};
             event.interval = skey.interval;
-            event.pid_tgid = skey.pid_tgid;
+            event.thread_pid = skey.thread_pid;
             event.host_pid = skey.host_pid;
             event.ip = skey.ip;
             event.time = stats->time;
@@ -112,7 +111,7 @@ int stop_timing(struct pt_regs *ctx) {
             stats_map.delete(&skey);
         } 
     }
-    ip_map.delete(&host_pid);
+    ip_map.delete(&thread_pid);
     return 0;
 }
 """
@@ -270,7 +269,8 @@ def main():
     class Stats(ctypes.Structure):
         _fields_ = [
             ("interval", ctypes.c_uint64),
-            ("pid_tgid", ctypes.c_uint64),
+            # This is the thread id
+            ("thread_pid", ctypes.c_uint64),
             ("ip", ctypes.c_uint64),
             ("time", ctypes.c_uint64),
             ("freq", ctypes.c_uint64),
@@ -281,8 +281,8 @@ def main():
         last_updated = datetime.now()
         stats = ctypes.cast(data, ctypes.POINTER(Stats)).contents
         obj = {
-            "pid": ctypes.c_uint32(stats.pid_tgid).value,
-            "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
+            "pid": ctypes.c_uint32(stats.thread_pid).value,
+            "tid": ctypes.c_uint32(stats.thread_pid >> 32).value,
         }
         fname = program.sym(stats.ip, obj["pid"], show_module=True).decode()
         if "unknown" in fname:
@@ -292,8 +292,8 @@ def main():
         else:
             cat = fname.split(" ")[1]
         obj = {
-            "pid": ctypes.c_uint32(stats.pid_tgid).value,
-            "tid": ctypes.c_uint32(stats.pid_tgid >> 32).value,
+            "pid": ctypes.c_uint32(stats.thread_pid).value,
+            "tid": ctypes.c_uint32(stats.thread_pid >> 32).value,
             "name": fname,
             "cat": cat,
             "ph": "C",

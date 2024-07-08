@@ -53,6 +53,61 @@ Let's also make an application kprobes directory.
 mkdir -p applications
 ```
 
+### Sleep
+
+Prepare the kprobes.
+
+```bash
+mkdir kprobes
+cd kprobes
+sudo -E bpftrace -l | grep "kprobe:" | split --lines=200 - kprobes.
+cd ../
+```
+```bash
+for filename in $(ls kprobes)
+  do
+  echo $filename
+  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out ../applications/sleep-bare-metal.txt sleep 4
+  time sudo -E python3 determine-kprobes.py --file kprobes/$filename --out ../applications/sleep-singularity.txt singularity exec ../metric-lammps-cpu_hpc7g.sif sleep 4
+done
+date
+```
+
+#### Experiment Runs for Sleep
+
+Then combine the results:
+
+```console
+mkdir kprobes-sleep
+cd kprobes-sleep
+cat ../../applications/sleep-bare-metal.txt ../../applications/sleep-singularity.txt | uniq | sort | split --numeric-suffixes=1 --lines=300 - sleep.
+cd ../
+```
+
+And then to run sleep for 32 iterations.
+
+```bash
+results=../results/sleep/bare-metal
+sresults=../results/sleep/singularity
+mkdir -p ${results} ${sresults}
+for iter in $(seq 1 32); do
+  for filename in $(ls ./kprobes-sleep); do
+       prefix="${results}/group-${filename}-iter-${iter}"
+       if [[ ! -f "${prefix}.out" ]]; then
+         time sudo -E python3 ./wrapped-time.py --file ./kprobes-sleep/$filename sleep 4 |& tee ${prefix}.out
+         ps -aef | grep starter | awk {'print $2'} | xargs sudo kill -9 || echo "starter already killed"
+         sudo pkill -9 starter || echo "starter already killed"
+       fi
+       prefix="${sresults}/group-${filename}-iter-${iter}"
+       if [[ ! -f "${prefix}.out" ]]; then
+         time sudo -E python3 ./wrapped-time.py --file ./kprobes-sleep/$filename singularity exec ../metric-lammps-cpu_hpc7g.sif sleep 4 |& tee ${prefix}.out
+         ps -aef | grep starter | awk {'print $2'} | xargs sudo kill -9 || echo "starter already killed"
+         sudo pkill -9 singularity || echo "singularity already killed"
+      fi
+   done
+done
+```
+
 ### Lammps
 
 ```bash
@@ -76,6 +131,7 @@ sudo -E bpftrace -l | grep "kprobe:" | split --lines=200 - kprobes.
 cd ../
 ```
 
+
 #### Kprobes for LAMMPS
 
 ```console
@@ -91,6 +147,7 @@ done
 date
 ```
 
+
 #### Experiment Runs for LAMMPS
 
 We are going to make a directory just for lammps input files. Since this set needs to run 2/recording, we will try for 400 total.
@@ -99,7 +156,7 @@ The files will be prefixed based on the application, and numbered so we can use 
 ```console
 mkdir kprobes
 cd kprobes
-cat ../applications/lammps-bare-metal.txt ../applications/lammps-singularity.txt | uniq | sort | split --numeric-suffixes=1 --lines=200 - lammps.
+cat ../applications/lammps-bare-metal.txt ../applications/lammps-singularity.txt | uniq | sort | split --numeric-suffixes=1 --lines=300 - lammps.
 cd ../
 ```
 
@@ -115,18 +172,18 @@ cd common/
 results=../results/lammps/bare-metal
 sresults=../results/lammps/singularity
 mkdir -p ${results} ${sresults}
-for iter in $(seq 6 32); do
+for iter in $(seq 1 5); do
   for filename in $(ls ../kprobes); do
       for proc in 16 32 64; do
        prefix="${results}/group-${filename}-size-${proc}-iter-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 ./wrapped-time-ring-buffers.py --file ../kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ./wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --bind-to core --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
          ps -aef | grep mpirun | awk {'print $2'} | xargs sudo kill -9 || echo "mpirun already killed"
          sudo pkill -9 starter || echo "starter already killed"
        fi
        prefix="${sresults}/group-${filename}-size-${proc}-iter-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 ./wrapped-time-ring-buffers.py --file ../kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_hpc7g.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ./wrapped-time.py --file ../kprobes/$filename singularity exec ../metric-lammps-cpu_hpc7g.sif /usr/local/bin/mpirun --allow-run-as-root --bind-to core --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
          ps -aef | grep mpirun | awk {'print $2'} | xargs sudo kill -9 || echo "mpirun already killed"
          sudo pkill -9 singularity || echo "singularity already killed"
          sudo pkill -9 starter || echo "starter already killed"
@@ -134,82 +191,49 @@ for iter in $(seq 6 32); do
       done
    done
 done
-```
 
-Other testing commands:
-
-```
-         time sudo -E python3 ./wrapped-time-ring-buffers.py --file ../kprobes/$filename --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
-
-
-         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /opt/amazon/openmpi/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
-
-         time sudo -E python3 ./ring-buffers/main.py --so-path ./ring-buffers/build/libtracer_ebpf.so --file ../kprobes/$filename --outfile ${prefix}.pfw /opt/amazon/openmpi/bin/mpirun --allow-run-as-root --host $(hostname):$proc -x LD_PRELOAD=./ring-buffers/build/libtracer_ebpf.so lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
-
-# This is for wrapped-time.py, no ring buffers
-cd common/
-results=../results/lammps/bare-metal
-sresults=../results/lammps/singularity
+# Run single process - no parallel execution.
+results=../results/lammps-serial/bare-metal
+sresults=../results/lammps-serial/singularity
 mkdir -p ${results} ${sresults}
 for iter in $(seq 1 5); do
   for filename in $(ls ../kprobes); do
-      for proc in 16 32 64; do
-       prefix="${results}/group-${filename}-size-${proc}-iter-${iter}"
+       prefix="${results}/group-${filename}-size-iter-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ./wrapped-time.py --file ../kprobes/$filename lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 500 |& tee ${prefix}.out
+         ps -aef | grep starter | awk {'print $2'} | xargs sudo kill -9 || echo "starter already killed"
        fi
-       prefix="${sresults}/group-${filename}-size-${proc}-iter-${iter}"
+       prefix="${sresults}/group-${filename}-size-iter-${iter}"
        if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E python3 ../wrapped-time.py --file ../kprobes/$filename /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_hpc7g.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+         time sudo -E python3 ./wrapped-time.py --file ../kprobes/$filename singularity exec ../metric-lammps-cpu_hpc7g.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 500 |& tee ${prefix}.out
+         ps -aef | grep starter | awk {'print $2'} | xargs sudo kill -9 || echo "starter already killed"
+         sudo pkill -9 singularity || echo "singularity already killed"
       fi
-      done
    done
 done
 
 
-# This is for without ebpf
+# This is no eBPF
 cd common/
-results=../results/lammps-no-ebpf/bare-metal
-sresults=../results/lammps-no-ebpf/singularity
+results=../results/lammps/bare-metal-no-ebpf
+sresults=../results/lammps/singularity-no-ebpf
 mkdir -p ${results} ${sresults}
-for iter in $(seq 1 105); do
-    for proc in 16 32 64; do
-       prefix="${results}/group-${filename}-size-${proc}-iter-${iter}"
-       if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
-       fi
-       prefix="${sresults}/group-${filename}-size-${proc}-iter-${iter}"
-       if [[ ! -f "${prefix}.out" ]]; then
-         time sudo -E /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_hpc7g.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
-      fi
-    done
+for iter in $(seq 1 32); do
+  for proc in 16 32 64; do
+   prefix="${results}/group-size-${proc}-iter-${iter}"
+   if [[ ! -f "${prefix}.out" ]]; then
+     time sudo -E /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+   fi
+   prefix="${sresults}/group-size-${proc}-iter-${iter}"
+   if [[ ! -f "${prefix}.out" ]]; then
+     time sudo -E /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_hpc7g.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
+   fi
+  done
 done
-
-
-mkdir group4
-cd kprobes
-cat ../kprobes/lammps.04 | split --lines=10 - group.04.
-cd ../
-
-
-# Doing just one file
-cd common/
-for iter in $(seq 1); do
-    for proc in 64; do
-      for func in $(cat ../kprobes/lammps.04); do
-       prefix="test/${func}"
-       if [[ ! -f "${prefix}.out" ]]; then
-       echo "$func" > ./function.txt
-       time sudo -E python3 ./wrapped-time-ring-buffers.py --file function.txt --outfile ${prefix}.pfw /usr/local/bin/mpirun --allow-run-as-root --host $(hostname):$proc singularity exec ../metric-lammps-cpu_hpc7g.sif lmp -in in.snap.test -var snapdir 2J8_W.SNAP -v x 228 -v y 228 -v z 228 -var nsteps 10000 |& tee ${prefix}.out
-       ps -aef | grep mpirun | awk {'print $2'} | xargs sudo kill -9
-       sudo pkill -9 singularity
-       sudo pkill -9 starter
-       fi
-      done
-    done
-done
-
 ```
+
+Note that there were 30 times (out of over 4k) that I saw "bad file descriptor" at the end, and I programmatically removed and redid these runs. There were not reliably scoped to a group or size. 
+
 
 #### AMG2023
 
