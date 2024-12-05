@@ -44,3 +44,29 @@ These containers have been built on c2d-standard with ubuntu 22.04. See [build-c
 | ghcr.io/converged-computing/mt-gemm:c2d                   | Google |[Dockerfile](mt-gemm-base)| |
 | ghcr.io/converged-computing/metric-linpack-cpu:c2d        | Google |[Dockerfile](linpack) | |  
 | ghcr.io/converged-computing/metrics-pennant:c2d           | Google |[Dockerfile](pennant) | |  
+
+
+## hpc7g (arm)
+
+- Instance: hpc7g
+- Size: 200 GB
+- Image: custom built ebpf (build instructions here)
+
+| Container                                                 | Cloud      | Dockerfile                          | Notes             |
+|-----------------------------------------------------------|-----------|------------------------------------|--------------------|
+| ghcr.io/converged-computing/metric-amg2023:hpc7g            | AWS |[Dockerfile](amg2023/Dockerfile) |  |
+| ghcr.io/converged-computing/metric-lammps-cpu:hpc7g         | AWS |[Dockerfile](lammps/Dockerfile) | |
+| ghcr.io/converged-computing/metric-kripke-cpu:hpc7g         | AWS |[Dockerfile](kripke/Dockerfile)  | |
+| ghcr.io/converged-computing/metric-laghos:hpc7g             | AWS |[Dockerfile](laghos/Dockerfile)  | |
+| ghcr.io/converged-computing/metric-minife:hpc7g             | AWS |[Dockerfile](minife/Dockerfile)  | | 
+| ghcr.io/converged-computing/metric-mixbench:hpc7g           | AWS |[Dockerfile](mixbench/Dockerfile)| |
+| ghcr.io/converged-computing/metric-nek5000:hpc7g            | AWS |[Dockerfile](nek5000/Dockerfile) | |
+| ghcr.io/converged-computing/metric-osu-cpu:hpc7g            | AWS |[Dockerfile](osu/Dockerfile) | |
+| ghcr.io/converged-computing/metric-quicksilver-cpu:hpc7g    | AWS |[Dockerfile](quicksilver/Dockerfile) | |
+| ghcr.io/converged-computing/metric-stream:hpc7g             | AWS |[Dockerfile](stream/Dockerfile) | |
+| ghcr.io/converged-computing/mt-gemm:hpc7g                   | AWS |[Dockerfile](mt-gemm-base/Dockerfile)| |
+| ghcr.io/converged-computing/metric-linpack-cpu:hpc7g        | AWS |[Dockerfile](linpack/Dockerfile) | |  
+| ghcr.io/converged-computing/metrics-pennant:hpc7g           | AWS |[Dockerfile](pennant/Dockerfile) | |  
+
+
+

@@ -4,6 +4,7 @@ import json
 import argparse
 import fnmatch
 import os
+import random
 
 from scipy import stats
 from statsmodels.sandbox.stats.multicomp import multipletests
@@ -25,7 +26,7 @@ def get_parser():
     parser.add_argument(
         "--results",
         help="directory with raw results data",
-        default=os.path.join(here, "results", "test-1"),
+        default=os.path.join(here, "results", "lammps-serial"),
     )
     parser.add_argument(
         "--out",
@@ -78,8 +79,8 @@ def main():
     df, lammps = parse_data(files)
 
     # Show means grouped by experiment to sanity check plots
-    df.to_csv(os.path.join(outdir, "testing-times.csv"))
-    lammps.to_csv(os.path.join(outdir, "lammps-times.csv"))
+    # df.to_csv(os.path.join(outdir, "testing-times.csv"))
+    # lammps.to_csv(os.path.join(outdir, "lammps-times.csv"))
 
     # Write unique functions to file
     funcs = df.function.unique().tolist()
@@ -113,7 +114,7 @@ def plot_lammps(lammps, outdir):
     plt.close()
 
 
-def plot_distribution(singularity, bare_metal, norm_dist_out):
+def plot_distribution(function, size, singularity, bare_metal, norm_dist_out):
     sidx = 0
     histdf = pandas.DataFrame(columns=["experiment", "nanoseconds"])
     for value in singularity:
@@ -143,6 +144,9 @@ def plot_results(df, lammps, outdir):
     """
     Plot results
     """
+    import IPython
+    IPython.embed()
+    sys.exit()
     # plot_lammps(lammps, outdir)
 
     # For each metric, see if there is significant difference between means
@@ -170,6 +174,9 @@ def plot_results(df, lammps, outdir):
             singularity = sized[sized.experiment == "singularity"].time_nsecs.tolist()
             bare_metal = sized[sized.experiment == "bare-metal"].time_nsecs.tolist()
 
+            if len(singularity) != 5 or len(bare_metal) != 5:
+                continue
+                
             # We would want to sanity check these and understand why!
             if len(singularity) == 0:
                 if size not in not_used_singularity:
@@ -192,7 +199,7 @@ def plot_results(df, lammps, outdir):
             if len(singularity) <= 1 or len(bare_metal) <= 1:
                 continue
 
-            # plot_distribution(singularity, bare_metal, norm_dist_out)
+            plot_distribution(function, size, singularity, bare_metal, norm_dist_out)
 
             res = stats.ttest_ind(singularity, bare_metal)
             diffs.loc[idx, :] = [function, size, res.pvalue, res.statistic]
@@ -260,6 +267,7 @@ def parse_data(files):
         columns=[
             "ranks",
             "experiment",
+            "group",
             "iteration",
             "time_seconds",
             "nodes",
@@ -276,6 +284,7 @@ def parse_data(files):
         columns=[
             "ranks",
             "experiment",
+            "group",
             "iteration",
             "time_seconds",
             "nodes",
@@ -291,7 +300,11 @@ def parse_data(files):
         pieces = parsed.split(os.sep)
         experiment = pieces[-2]
         filebase = pieces[-1]
-        _, iteration, _ = filebase.replace(".out", "").split("-")
+
+        if "proc" in filename:
+            _, group, _, size, _, iteration = filebase.replace(".out", "").split("-")
+        else:
+            _, group, _, _, iteration = filebase.replace(".out", "").split("-")
 
         # Save CPU line
         # This is a list, each a json result, 20x
@@ -313,6 +326,7 @@ def parse_data(files):
         lammps.loc[idxl, :] = [
             int(ranks),
             experiment,
+            group,
             int(iteration),
             seconds,
             1,
@@ -320,26 +334,32 @@ def parse_data(files):
         ]
         idxl += 1
 
-        # These just have lammps times
-        if "no-ebpf" in filename:
-            continue
-
         # Json result is here
         ebpf = json.loads(
             item.split("=== RESULTS START", 1)[-1].split("=== RESULTS END", 1)[0]
         )
 
+        # Get unique function names
+        names = {name: 0 for name in set([x['func'] for x in ebpf])}
+        counts = {name: 0 for name in set([x['func'] for x in ebpf])}
+        
+        # Add up times based on the function
         for func in ebpf:
+            names[func['func']] += func['time_ns']
+            counts[func['func']] += func['count']
+        
+        for name, time_ns in names.items():
             df.loc[idx, :] = [
                 int(ranks),
                 experiment,
-                iteration,
+                group,
+                int(iteration),
                 seconds,
                 1,
                 percent_cpu_usage,
-                func["func"],
-                func["count"],
-                func["time_nsecs"],
+                name,
+                counts[name],
+                time_ns,
             ]
             idx += 1
 

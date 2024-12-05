@@ -1,9 +1,14 @@
 FROM ubuntu:22.04 as builder
 ENV DEBIAN_FRONTEND=noninteractive
+ARG arch=amd64
+ENV arch=$arch
 
 # Build command
 #  docker build  -t ghcr.io/converged-computing/metric-amg2023:spack-slim-cpu .
 #  docker push ghcr.io/converged-computing/metric-amg2023:spack-slim-cpu
+
+# hpc7g
+#  docker build --build-arg cmake_arch=aarch64 --build-arg arch=arm64 -t ghcr.io/converged-computing/metric-amg2023:hpc7g .
 
 RUN apt-get update
 RUN DEBIAN_FRONTEND="noninteractive" apt-get -y install \
@@ -66,6 +71,8 @@ WORKDIR /opt
 EXPOSE 22
 
 FROM ubuntu:22.04
+ARG arch=amd64
+ENV arch=$arch
 
 COPY --from=builder /opt/spack-environment /opt/spack-environment
 COPY --from=builder /opt/software /opt/software
@@ -88,7 +95,7 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -y install --no-install-recommends 
     
 # Finally, install oras for saving artifacts
 RUN export VERSION="1.1.0" && \
-    curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz" && \
+    curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_${arch}.tar.gz" && \
     mkdir -p oras-install/ && \
     tar -zxf oras_${VERSION}_*.tar.gz -C oras-install/ && \
     mv oras-install/oras /usr/local/bin/ && \
